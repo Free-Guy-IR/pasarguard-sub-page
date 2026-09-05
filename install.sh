@@ -24,7 +24,8 @@ Install the PasarGuard subscription page.
   install.sh                    install as the panel-wide page
   install.sh --admin NAME       install a copy for one admin, and print how to point them at it
   install.sh --dir PATH         panel directory (default /opt/pasarguard)
-  install.sh --ref TAG          install a specific tag or commit instead of the pinned one
+  install.sh --ref TAG --sha256 H
+                                install a different tag or commit, with its hash
   install.sh --dry-run          print every change it would make, and make none
   install.sh --rollback         restore the newest backup and restart
 
@@ -33,23 +34,31 @@ EOF
 }
 
 need_value() {
-  # need_value <option> <remaining-arg-count> <value>
   [ "$2" -ge 2 ] || die "$1 needs a value"
   [ -n "$3" ] || die "$1 needs a non-empty value"
 }
 
 ROLLBACK=0
+REF_OVERRIDDEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --admin)    need_value "$1" "$#" "${2:-}"; ADMIN="$2"; shift 2 ;;
     --dir)      need_value "$1" "$#" "${2:-}"; PANEL_DIR="$2"; shift 2 ;;
-    --ref)      need_value "$1" "$#" "${2:-}"; REF="$2"; EXPECT_SHA256=""; shift 2 ;;
+    --ref)      need_value "$1" "$#" "${2:-}"; REF="$2"; REF_OVERRIDDEN=1; EXPECT_SHA256=""; shift 2 ;;
+    --sha256)   need_value "$1" "$#" "${2:-}"; EXPECT_SHA256="$2"; shift 2 ;;
     --dry-run)  DRY=1; shift ;;
     --rollback) ROLLBACK=1; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac
 done
+
+if [ "$REF_OVERRIDDEN" = 1 ] && [ -z "$EXPECT_SHA256" ]; then
+  die "--ref also needs --sha256 <hash>
+A ref such as a branch name can change under you, and this installs the file
+as root. Take the hash of the file you mean and pass it:
+  curl -fsSL https://raw.githubusercontent.com/$REPO/$REF/index.html | sha256sum"
+fi
 
 [ "$(id -u)" -eq 0 ] || die "run this as root"
 command -v curl >/dev/null || die "curl is required"
@@ -101,16 +110,18 @@ curl -fsSL --proto '=https' --tlsv1.2 -o "$TMP" \
   || die "download failed — check this server's connectivity to github.com"
 
 GOT="$(sha256sum "$TMP" | cut -d' ' -f1)"
-if [ -n "$EXPECT_SHA256" ]; then
+[ -n "$EXPECT_SHA256" ] || die "no checksum to verify against — refusing to install"
+if true; then
   [ "$GOT" = "$EXPECT_SHA256" ] || die "checksum mismatch
   expected $EXPECT_SHA256
   got      $GOT
 Refusing to install. Either the download was corrupted, or the file at $REF is not the one this installer was built for."
   ok "checksum verified"
-else
-  warn "installing $REF without a pinned checksum (sha256 $GOT)"
 fi
-grep -q 'user.username' "$TMP" || die "what downloaded is not the template; refusing to install it"
+
+for marker in 'user.username' 'user.data_limit' 'bytesformat' 'cfgModal' 'QRCode'; do
+  grep -q "$marker" "$TMP" || die "the downloaded file is missing '$marker' — it is not this template; refusing to install it"
+done
 
 if [ "$DRY" = 1 ]; then
   say ""
@@ -139,10 +150,6 @@ chmod 644 "$TARGET"
 ok "installed $TARGET"
 
 set_env() {
-  # Replace every ACTIVE assignment of $1 with one canonical line. Commented
-  # lines are left exactly as they are: an .env commonly carries commented
-  # examples of the same key, and turning those into live settings would give
-  # the panel two conflicting values.
   local key="$1" val="$2" tmp
   tmp="$(mktemp)"
   awk -v key="$key" -v val="$val" '
