@@ -2,10 +2,6 @@
 
 یک صفحهٔ اشتراک فارسی و راست‌چین برای پنل PasarGuard. یک فایل، بدون هیچ درخواست بیرونی.
 
-<div align="center">
-  <img src="screenshots/preview.png" alt="پیش‌نمایش" width="360" />
-</div>
-
 ---
 
 ## چرا یک فایل
