@@ -2,6 +2,10 @@
 
 A Persian, right-to-left subscription page for the PasarGuard panel. One file, no outside requests.
 
+<div align="center">
+  <img src="screenshots/preview.png" alt="Preview" width="360" />
+</div>
+
 [فارسی](README.fa.md)
 
 ---
