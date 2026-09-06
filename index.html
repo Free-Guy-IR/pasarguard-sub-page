@@ -446,6 +446,54 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     tt = setTimeout(function () { t.classList.remove("show"); }, 1900);
   }
 
+  function wgConf(uri) {
+    var rest = uri.replace(/^(wireguard|wg):\/\//i, "");
+    var h = rest.indexOf("#");
+    if (h > -1) rest = rest.slice(0, h);
+    var at = rest.indexOf("@");
+    if (at < 0) return null;
+    var priv = decodeURIComponent(rest.slice(0, at));
+    var after = rest.slice(at + 1);
+    var q = after.indexOf("?");
+    var endpoint = decodeURIComponent((q < 0 ? after : after.slice(0, q)).replace(/\/+$/, ""));
+    var p = {};
+    if (q > -1) {
+      after.slice(q + 1).split("&").forEach(function (kv) {
+        var i = kv.indexOf("=");
+        if (i > -1) p[kv.slice(0, i).toLowerCase()] = decodeURIComponent(kv.slice(i + 1));
+      });
+    }
+    if (!priv || !p.publickey || !endpoint) return null;
+    var L = ["[Interface]", "PrivateKey = " + priv];
+    if (p.address) L.push("Address = " + p.address);
+    if (p.dns) L.push("DNS = " + p.dns);
+    if (p.mtu) L.push("MTU = " + p.mtu);
+    L.push("", "[Peer]", "PublicKey = " + p.publickey);
+    if (p.presharedkey) L.push("PresharedKey = " + p.presharedkey);
+    L.push("AllowedIPs = " + (p.allowedips || "0.0.0.0/0,::/0"));
+    L.push("Endpoint = " + endpoint, "");
+    var host = (endpoint.split(":")[0].split(".")[0] || "wg").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 12);
+    return { name: ("wg-" + host).slice(0, 15) + ".conf", body: L.join("\n") };
+  }
+
+  function downloadWg(uri) {
+    var c = null;
+    try { c = wgConf(uri); } catch (e) { c = null; }
+    if (!c) { copy(uri); return; }
+    try {
+      var b = new Blob([c.body], { type: "application/octet-stream" });
+      var u = URL.createObjectURL(b);
+      var a = document.createElement("a");
+      a.href = u;
+      a.download = c.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(u); }, 1500);
+      toast("دانلود شد");
+    } catch (e) { copy(uri); }
+  }
+
   function copy(text) {
     var ok = function () { toast("کپی شد"); };
     if (navigator.clipboard && window.isSecureContext) {
@@ -506,6 +554,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
   }
 
   var I_COPY = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  var I_DOWN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
   var I_QR = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM19 19h2v2h-2z"/></svg>';
 
   var uris = [];
@@ -525,13 +574,16 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     nm.className = "nm";
     nm.textContent = nameOf(uri);
 
+    var isWg = protoOf(uri) === "WIREGUARD" && wgConf(uri) !== null;
     var bc = document.createElement("button");
     bc.type = "button";
     bc.className = "mini";
-    bc.title = "کپی";
-    bc.setAttribute("aria-label", "کپی کانفیگ");
-    bc.innerHTML = I_COPY;
-    bc.addEventListener("click", function () { copy(uri); });
+    bc.title = isWg ? "دانلود فایل" : "کپی";
+    bc.setAttribute("aria-label", isWg ? "دانلود فایل وایرگارد" : "کپی کانفیگ");
+    bc.innerHTML = isWg ? I_DOWN : I_COPY;
+    bc.addEventListener("click", isWg
+      ? function () { downloadWg(uri); }
+      : function () { copy(uri); });
 
     top.appendChild(b);
     top.appendChild(nm);
