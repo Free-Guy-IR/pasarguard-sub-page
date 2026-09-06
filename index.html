@@ -544,7 +544,31 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     var m = /^([a-z0-9+.-]+):/i.exec(u);
     return m ? m[1].toUpperCase() : "CONFIG";
   }
+  function b64utf8(s) {
+    var t = s.replace(/-/g, "+").replace(/_/g, "/").replace(/\s+/g, "");
+    while (t.length % 4) t += "=";
+    var bin = atob(t);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    if (typeof TextDecoder === "function") return new TextDecoder("utf-8").decode(bytes);
+    return decodeURIComponent(escape(bin));
+  }
+
+  function vmessName(u) {
+    try {
+      var o = JSON.parse(b64utf8(u.slice(8)));
+      var n = (o.ps || o.remarks || "").toString().trim();
+      if (n) return n;
+      if (o.add) return o.add + (o.port ? ":" + o.port : "");
+    } catch (e) {}
+    return "";
+  }
+
   function nameOf(u) {
+    if (/^vmess:\/\//i.test(u)) {
+      var vn = vmessName(u);
+      if (vn) return vn;
+    }
     var h = u.indexOf("#");
     if (h !== -1 && h + 1 < u.length) {
       try { return decodeURIComponent(u.slice(h + 1)); } catch (e) { return u.slice(h + 1); }
