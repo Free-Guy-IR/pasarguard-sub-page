@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO="Free-Guy-IR/pasarguard-sub-page"
 REF="${REF:-v1.1.0}"
-EXPECT_SHA256="84f3d2406d9a5e48e3eeffcb1243c791bd2dd4250e4bc5edc24e505eb75e779e"
+EXPECT_SHA256="6d002483a21d6bc34dc202aeb99d715a6b1cfdc379c7c77c2f416317e1493e3b"
 
 PANEL_DIR="${PANEL_DIR:-/opt/pasarguard}"
 TPL_DIR="${TPL_DIR:-/var/lib/pasarguard/templates}"
@@ -38,12 +38,21 @@ need_value() {
   [ -n "$3" ] || die "$1 needs a non-empty value"
 }
 
+check_admin() {
+  case "$1" in
+    *[!A-Za-z0-9_.-]*) die "admin name may only contain letters, digits, dot, dash and underscore" ;;
+  esac
+  case "$1" in
+    .|..) die "admin name may not be . or .. — that would write outside the templates directory" ;;
+  esac
+}
+
 ROLLBACK=0
 REF_OVERRIDDEN=0
 SHA_OVERRIDDEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --admin)    need_value "$1" "$#" "${2:-}"; ADMIN="$2"; shift 2 ;;
+    --admin)    need_value "$1" "$#" "${2:-}"; check_admin "$2"; ADMIN="$2"; shift 2 ;;
     --dir)      need_value "$1" "$#" "${2:-}"; PANEL_DIR="$2"; shift 2 ;;
     --ref)      need_value "$1" "$#" "${2:-}"; REF="$2"; REF_OVERRIDDEN=1; shift 2 ;;
     --sha256)   need_value "$1" "$#" "${2:-}"; EXPECT_SHA256="$2"; SHA_OVERRIDDEN=1; shift 2 ;;
@@ -72,10 +81,11 @@ command -v sha256sum >/dev/null || die "sha256sum is required"
 ENV_FILE="$PANEL_DIR/.env"
 [ -f "$ENV_FILE" ] || die "no .env at $ENV_FILE — pass --dir if the panel lives elsewhere"
 
+case "$TPL_DIR$PANEL_DIR" in
+  *'"'*) die "paths may not contain a double quote" ;;
+esac
+
 if [ -n "$ADMIN" ]; then
-  case "$ADMIN" in
-    *[!A-Za-z0-9_.-]*) die "admin name may only contain letters, digits, dot, dash and underscore" ;;
-  esac
   SUBDIR="$ADMIN"
 else
   SUBDIR="subscription"
@@ -84,25 +94,27 @@ TARGET="$TPL_DIR/$SUBDIR/index.html"
 
 restart_panel() {
   if command -v docker >/dev/null && [ -f "$PANEL_DIR/docker-compose.yml" ]; then
-    (cd "$PANEL_DIR" && docker compose restart pasarguard >/dev/null 2>&1) \
-      && ok "panel restarted" \
-      || warn "could not restart automatically — run: cd $PANEL_DIR && docker compose restart pasarguard"
+    (cd "$PANEL_DIR" && docker compose up -d pasarguard >/dev/null 2>&1) \
+      && ok "panel recreated with the new environment" \
+      || warn "could not restart automatically — run: cd $PANEL_DIR && docker compose up -d pasarguard"
   else
     warn "restart the panel yourself so it picks up the change"
   fi
 }
 
 newest_backup() {
-  ls -1t "$TPL_DIR/$SUBDIR"/index.html.bak-* 2>/dev/null | head -1
+  ls -1 "$TPL_DIR/$SUBDIR"/index.html.bak-* 2>/dev/null | sort | tail -1
 }
 
 if [ "$ROLLBACK" = 1 ]; then
   B="$(newest_backup)" || true
   [ -n "${B:-}" ] || die "no backup found in $TPL_DIR/$SUBDIR"
+  EB="$(ls -1 "$PANEL_DIR"/.env.bak-* 2>/dev/null | sort | tail -1 || true)"
   say "restoring $B"
   if [ "$DRY" = 1 ]; then plan "copy $B over $TARGET"; exit 0; fi
   cp -p "$B" "$TARGET"
-  ok "restored"
+  ok "restored $TARGET"
+  if [ -n "${EB:-}" ]; then cp -p "$EB" "$ENV_FILE"; ok "restored $ENV_FILE from $EB"; fi
   restart_panel
   exit 0
 fi
@@ -165,8 +177,8 @@ set_env() {
     { print }
     END { if (!done) print key "=\"" val "\"" }
   ' "$ENV_FILE" > "$tmp"
-  cat "$tmp" > "$ENV_FILE"
-  rm -f "$tmp"
+  chmod --reference="$ENV_FILE" "$tmp" 2>/dev/null || chmod "$(stat -c '%a' "$ENV_FILE")" "$tmp"
+  mv -f "$tmp" "$ENV_FILE"
 }
 
 BEFORE_MODE="$(stat -c '%a' "$ENV_FILE")"

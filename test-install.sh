@@ -47,6 +47,8 @@ expect_fail "--sha256 with no value"       --sha256
 expect_fail "--ref without --sha256"       --ref main
 expect_fail "an unknown option"            --nope
 expect_fail "an admin name with a slash"   --admin ../etc
+expect_fail "an admin name of .."          --admin ..
+expect_fail "an admin name of ."           --admin .
 expect_ok   "--help"                       --help
 
 echo
@@ -59,6 +61,30 @@ echo "the hash has to look like a hash"
 expect_fail "a short hash"                 --ref main --sha256 abc123
 expect_fail "a hash with non-hex in it"    --ref main --sha256 zzzz000000000000000000000000000000000000000000000000000000000000
 expect_fail "an uppercase hash"            --ref main --sha256 0000000000000000000000000000000000000000000000000000000000000000
+
+echo
+echo "the installer applies the env change in a way docker actually picks up"
+if grep -q 'docker compose up -d pasarguard' "$SCRIPT" && ! grep -q 'docker compose restart pasarguard' "$SCRIPT"; then
+  printf '%s ok  uses up -d, not restart%s\n' "$c_grn" "$c_off"; pass=$((pass+1))
+else
+  printf '%s FAIL%s still uses `docker compose restart`, which does not re-read .env\n' "$c_red" "$c_off"; fail=$((fail+1))
+fi
+
+echo
+echo "rollback also restores the env file it backed up"
+if grep -q 'restored \$ENV_FILE' "$SCRIPT" || grep -q 'cp -p "\$EB" "\$ENV_FILE"' "$SCRIPT"; then
+  printf '%s ok  rollback restores .env%s\n' "$c_grn" "$c_off"; pass=$((pass+1))
+else
+  printf '%s FAIL%s rollback leaves the .env changes in place\n' "$c_red" "$c_off"; fail=$((fail+1))
+fi
+
+echo
+echo "the env file is written atomically"
+if grep -q 'mv -f "\$tmp" "\$ENV_FILE"' "$SCRIPT"; then
+  printf '%s ok  atomic mv%s\n' "$c_grn" "$c_off"; pass=$((pass+1))
+else
+  printf '%s FAIL%s truncate-then-copy can destroy .env if interrupted\n' "$c_red" "$c_off"; fail=$((fail+1))
+fi
 
 echo
 echo "the pinned checksum matches the template beside it"
