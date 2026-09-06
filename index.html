@@ -62,15 +62,19 @@ header p{margin:4px 0 0; font-size:12px; color:var(--t3)}
   box-shadow:var(--shadow); transition:transform .15s;
 }
 :root[data-theme="dark"] .theme-toggle{border-color:transparent}
-.lang-toggle{
-  height:40px; min-width:44px; padding:0 10px; border-radius:999px; flex:none;
-  display:grid; place-items:center; font:inherit; font-size:12px; font-weight:800;
-  letter-spacing:.04em; cursor:pointer;
-  background:var(--card); color:var(--t2); border:1px solid var(--border);
-  box-shadow:var(--shadow); transition:transform .15s;
+.lang-group{
+  display:flex; align-items:center; gap:2px; flex:none; height:40px; padding:3px;
+  border-radius:999px; background:var(--card); border:1px solid var(--border);
+  box-shadow:var(--shadow);
 }
-.lang-toggle:hover{transform:translateY(-1px)}
-:root[data-theme="dark"] .lang-toggle{border-color:transparent}
+.lang-btn{
+  height:100%; min-width:34px; padding:0 9px; border:0; border-radius:999px;
+  font:inherit; font-size:11px; font-weight:800; letter-spacing:.03em; cursor:pointer;
+  background:transparent; color:var(--t3); transition:background .15s, color .15s;
+}
+.lang-btn:hover{color:var(--t2)}
+.lang-btn[aria-pressed="true"]{background:var(--primary); color:#fff}
+:root[data-theme="dark"] .lang-group{border-color:transparent}
 .head-actions{display:flex; align-items:center; gap:8px; flex:none}
 .theme-toggle:active{transform:scale(.95)}
 
@@ -239,7 +243,11 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
       </div>
     </div>
     <div class="head-actions">
-    <button class="lang-toggle" id="langBtn" type="button" aria-label="تغییر زبان" data-i18n-aria="language">FA</button>
+    <div class="lang-group" role="group" aria-label="تغییر زبان" data-i18n-aria="language">
+      <button class="lang-btn" type="button" data-lang="fa" lang="fa">فا</button>
+      <button class="lang-btn" type="button" data-lang="en" lang="en">EN</button>
+      <button class="lang-btn" type="button" data-lang="ru" lang="ru">RU</button>
+    </div>
     <button class="theme-toggle" id="themeBtn" type="button" aria-label="تغییر پوسته" data-i18n-aria="theme">
       <svg id="iconMoon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       <svg id="iconSun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
@@ -452,7 +460,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
 
   var tt;
   var LANGS = ["fa", "en", "ru"];
-  var LANG_LABEL = { fa: "FA", en: "EN", ru: "RU" };
+  var LANG_NAME = { fa: "فارسی", en: "English", ru: "Русский" };
   var RTL = { fa: 1 };
   var STRINGS = {"fa":{"title":"صفحه پروفایل کاربری","subtitle":"مدیریت اشتراک شما","theme":"تغییر پوسته","language":"تغییر زبان","account":"شناسه کانفیگ","st.active":"فعال","st.on_hold":"در انتظار شروع","st.expired":"منقضی","st.limited":"حجم تمام شد","st.disabled":"غیرفعال","duration":"مدت زمان","days":"روز","hours":"ساعت","ended":"پایان‌یافته","daysAfterStart":"روز پس از شروع","unlimited":"نامحدود","traffic":"حجم ترافیک","totalLabel":"کل:","remaining":"باقی‌مانده","support":"پشتیبانی","configs":"کانفیگ‌ها","quickAdd":"افزودن سریع به اپلیکیشن","add":"افزودن","downloadApps":"دانلود برنامه‌های اتصال","os.android":"اندروید","os.ios":"آیفون","os.windows":"ویندوز","os.macos":"مک","os.linux":"لینوکس","warn.expired":"اشتراک شما به پایان رسیده است.","warn.limited":"حجم اشتراک شما تمام شده است.","warn.disabled":"این اشتراک غیرفعال است.","yourConfigs":"کانفیگ‌های شما","close":"بستن","copyAll":"کپی همه کانفیگ‌ها","noConfigs":"کانفیگی برای نمایش نیست.","qr":"بارکد","qrTitle":"بارکد کانفیگ","downloaded":"دانلود شد","copied":"کپی شد","copyFailed":"کپی نشد","config":"کانفیگ","download":"دانلود فایل","copy":"کپی","downloadWg":"دانلود فایل وایرگارد","copyConfig":"کپی کانفیگ","showQr":"نمایش بارکد"},"en":{"title":"Your profile","subtitle":"Manage your subscription","theme":"Toggle theme","language":"Change language","account":"Account","st.active":"Active","st.on_hold":"Not started","st.expired":"Expired","st.limited":"Data used up","st.disabled":"Disabled","duration":"Time left","days":"days","hours":"hours","ended":"Ended","daysAfterStart":"days after first use","unlimited":"Unlimited","traffic":"Data used","totalLabel":"of","remaining":"left","support":"Support","configs":"Configs","quickAdd":"Quick add to an app","add":"Add","downloadApps":"Download a client","os.android":"Android","os.ios":"iPhone","os.windows":"Windows","os.macos":"macOS","os.linux":"Linux","warn.expired":"Your subscription has expired.","warn.limited":"You have used all your data.","warn.disabled":"This subscription is disabled.","yourConfigs":"Your configs","close":"Close","copyAll":"Copy all configs","noConfigs":"Nothing to show here.","qr":"QR code","qrTitle":"Config QR code","downloaded":"Downloaded","copied":"Copied","copyFailed":"Could not copy","config":"Config","download":"Download file","copy":"Copy","downloadWg":"Download WireGuard file","copyConfig":"Copy config","showQr":"Show QR code"},"ru":{"title":"Ваш профиль","subtitle":"Управление подпиской","theme":"Сменить тему","language":"Сменить язык","account":"Аккаунт","st.active":"Активна","st.on_hold":"Не начата","st.expired":"Истекла","st.limited":"Трафик исчерпан","st.disabled":"Отключена","duration":"Осталось времени","days":"дн.","hours":"ч.","ended":"Завершена","daysAfterStart":"дн. после старта","unlimited":"Безлимит","traffic":"Трафик","totalLabel":"из","remaining":"осталось","support":"Поддержка","configs":"Конфиги","quickAdd":"Быстрое добавление в приложение","add":"Добавить","downloadApps":"Скачать клиент","os.android":"Android","os.ios":"iPhone","os.windows":"Windows","os.macos":"macOS","os.linux":"Linux","warn.expired":"Срок вашей подписки истёк.","warn.limited":"Вы израсходовали весь трафик.","warn.disabled":"Эта подписка отключена.","yourConfigs":"Ваши конфиги","close":"Закрыть","copyAll":"Копировать все конфиги","noConfigs":"Здесь пока пусто.","qr":"QR-код","qrTitle":"QR-код конфига","downloaded":"Скачано","copied":"Скопировано","copyFailed":"Не удалось скопировать","config":"Конфиг","download":"Скачать файл","copy":"Копировать","downloadWg":"Скачать файл WireGuard","copyConfig":"Копировать конфиг","showQr":"Показать QR-код"}};
   var lang = "fa";
@@ -465,12 +473,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
   function detectLang() {
     var saved = null;
     try { saved = localStorage.getItem("sub-lang"); } catch (e) {}
-    if (saved && LANGS.indexOf(saved) > -1) return saved;
-    var nav = (navigator.languages || [navigator.language || ""]).join(",").toLowerCase();
-    if (/\bfa|\bpe\b/.test(nav)) return "fa";
-    if (/\bru|\buk\b|\bbe\b|\bkk\b/.test(nav)) return "ru";
-    if (/\ben\b/.test(nav)) return "en";
-    return "fa";
+    return saved && LANGS.indexOf(saved) > -1 ? saved : "fa";
   }
 
   function applyLang(next) {
@@ -488,12 +491,11 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-title]"), function (el) {
       el.title = T(el.getAttribute("data-i18n-title"));
     });
-    var b = $("langBtn");
-    if (b) {
-      b.textContent = LANG_LABEL[lang];
-      b.setAttribute("aria-label", T("language"));
-      b.title = T("language");
-    }
+    Array.prototype.forEach.call(document.querySelectorAll(".lang-btn"), function (b) {
+      var on = b.getAttribute("data-lang") === lang;
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.title = LANG_NAME[b.getAttribute("data-lang")];
+    });
   }
 
   function toast(m) {
@@ -728,12 +730,9 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     } catch (e) { copy(uri); }
   }
 
-  var langBtn = $("langBtn");
-  if (langBtn) {
-    langBtn.addEventListener("click", function () {
-      applyLang(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length]);
-    });
-  }
+  Array.prototype.forEach.call(document.querySelectorAll(".lang-btn"), function (b) {
+    b.addEventListener("click", function () { applyLang(b.getAttribute("data-lang")); });
+  });
   applyLang(detectLang());
 
   var ov = $("ovpnBtn");
