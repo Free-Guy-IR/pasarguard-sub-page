@@ -40,12 +40,13 @@ need_value() {
 
 ROLLBACK=0
 REF_OVERRIDDEN=0
+SHA_OVERRIDDEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --admin)    need_value "$1" "$#" "${2:-}"; ADMIN="$2"; shift 2 ;;
     --dir)      need_value "$1" "$#" "${2:-}"; PANEL_DIR="$2"; shift 2 ;;
-    --ref)      need_value "$1" "$#" "${2:-}"; REF="$2"; REF_OVERRIDDEN=1; EXPECT_SHA256=""; shift 2 ;;
-    --sha256)   need_value "$1" "$#" "${2:-}"; EXPECT_SHA256="$2"; shift 2 ;;
+    --ref)      need_value "$1" "$#" "${2:-}"; REF="$2"; REF_OVERRIDDEN=1; shift 2 ;;
+    --sha256)   need_value "$1" "$#" "${2:-}"; EXPECT_SHA256="$2"; SHA_OVERRIDDEN=1; shift 2 ;;
     --dry-run)  DRY=1; shift ;;
     --rollback) ROLLBACK=1; shift ;;
     -h|--help)  usage; exit 0 ;;
@@ -53,7 +54,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$REF_OVERRIDDEN" = 1 ] && [ -z "$EXPECT_SHA256" ]; then
+if ! printf '%s' "$EXPECT_SHA256" | grep -qE '^[0-9a-f]{64}$'; then
+  die "--sha256 must be 64 lowercase hex characters (got: ${EXPECT_SHA256:-nothing})"
+fi
+
+if [ "$REF_OVERRIDDEN" = 1 ] && [ "$SHA_OVERRIDDEN" = 0 ]; then
   die "--ref also needs --sha256 <hash>
 A ref such as a branch name can change under you, and this installs the file
 as root. Take the hash of the file you mean and pass it:

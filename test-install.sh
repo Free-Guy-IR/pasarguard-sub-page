@@ -18,6 +18,17 @@ expect_fail() {
   fi
 }
 
+expect_parses() {
+  local what="$1"; shift
+  local out
+  out="$(bash "$SCRIPT" "$@" 2>&1)"
+  if printf '%s' "$out" | grep -qE 'needs a value|needs a non-empty|also needs --sha256|must be 64 lowercase|unknown option'; then
+    printf '%s FAIL%s %s — rejected while parsing: %s\n' "$c_red" "$c_off" "$what" "$(printf '%s' "$out" | head -1)"; fail=$((fail+1))
+  else
+    printf '%s ok  %s%s\n' "$c_grn" "$what" "$c_off"; pass=$((pass+1))
+  fi
+}
+
 expect_ok() {
   local what="$1"; shift
   if bash "$SCRIPT" "$@" >/dev/null 2>&1; then
@@ -39,9 +50,20 @@ expect_fail "an admin name with a slash"   --admin ../etc
 expect_ok   "--help"                       --help
 
 echo
+echo "the order of --ref and --sha256 does not matter"
+expect_parses "--ref then --sha256"        --ref main --sha256 0000000000000000000000000000000000000000000000000000000000000000
+expect_parses "--sha256 then --ref"        --sha256 0000000000000000000000000000000000000000000000000000000000000000 --ref main
+
+echo
+echo "the hash has to look like a hash"
+expect_fail "a short hash"                 --ref main --sha256 abc123
+expect_fail "a hash with non-hex in it"    --ref main --sha256 zzzz000000000000000000000000000000000000000000000000000000000000
+expect_fail "an uppercase hash"            --ref main --sha256 0000000000000000000000000000000000000000000000000000000000000000
+
+echo
 echo "the pinned checksum matches the template beside it"
 if [ -f "$(dirname "$SCRIPT")/index.html" ]; then
-  pinned="$(grep -oE '^EXPECT_SHA256="[a-f0-9]+"' "$SCRIPT" | cut -d'"' -f2)"
+  pinned="$(grep -oE '^EXPECT_SHA256="[a-f0-9]+"' "$SCRIPT" | head -n1 | cut -d'"' -f2)"
   actual="$( { sha256sum 2>/dev/null || shasum -a 256; } < "$(dirname "$SCRIPT")/index.html" | cut -d' ' -f1)"
   if [ -n "$pinned" ] && [ "$pinned" = "$actual" ]; then
     printf '%s ok  pinned %s…%s\n' "$c_grn" "${pinned:0:16}" "$c_off"; pass=$((pass+1))
