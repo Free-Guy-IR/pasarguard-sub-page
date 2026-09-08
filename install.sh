@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO="Free-Guy-IR/pasarguard-sub-page"
 REF="${REF:-v1.1.0}"
-EXPECT_SHA256="158cf607bbd4f69b3b2345b2d8a59f0fa9a0a2614c592be00112d049494e52c0"
+EXPECT_SHA256="6bb1b8286dde14b010db1095a6afd2e736470573ee2d8d3573306d6b5c98d980"
 
 PANEL_DIR="${PANEL_DIR:-/opt/pasarguard}"
 TPL_DIR="${TPL_DIR:-/var/lib/pasarguard/templates}"
