@@ -506,7 +506,16 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
       </ul>
       <button class="subnotecopy" type="button" id="subCopyBtn" data-i18n="sub.copy">کپی لینک اشتراک</button>
     </div>
-    <div id="cfgList" hidden></div>
+    {% if links %}
+    <button class="wide" type="button" id="copyAll" data-copy-all="cfgList">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span data-i18n="copyAll">کپی همه کانفیگ‌ها</span>
+    </button>
+    {% endif %}
+    <div id="cfgList">
+      {% for link in links %}<div class="cfg" data-uri="{{ link | e }}"></div>
+      {% else %}<div class="empty" data-i18n="noConfigs">کانفیگی برای نمایش نیست.</div>{% endfor %}
+    </div>
   </div>
 </div>
 
