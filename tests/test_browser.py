@@ -132,7 +132,14 @@ SNAPSHOT = """(function () {
   var out = {};
   var cfgList = document.getElementById("cfgList");
   var wgList = document.getElementById("wgList");
-  out.ready = !!cfgList && !!cfgList.querySelector(".cfg, .empty");
+  var allCards = document.querySelectorAll(".cfg");
+  var built = 0;
+  Array.prototype.forEach.call(allCards, function (c) { if (c.querySelector(".mini")) built++; });
+  out.ready = document.readyState === "complete" &&
+    (allCards.length > 0 ? built === allCards.length
+                         : !!cfgList && !!cfgList.querySelector(".empty"));
+  out.cardsBuilt = built;
+  out.cardsTotal = allCards.length;
   out.cfgCards = cfgList ? cfgList.querySelectorAll(".cfg").length : -1;
   out.wgCards = wgList ? wgList.querySelectorAll(".cfg").length : -1;
   var leaked = [];
@@ -217,17 +224,26 @@ class Page:
             'document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));'
         )
 
-    def wait_ready(self, deadline=20):
+    def wait_ready(self, deadline=40):
         end = time.monotonic() + deadline
+        previous = None
+        stable = 0
         while time.monotonic() < end:
             try:
                 state = self.snapshot()
             except Exception:
                 state = None
             if state and state.get("ready"):
-                return state
-            time.sleep(0.2)
-        raise RuntimeError("page never finished rendering its config list")
+                shape = (state.get("cfgCards"), state.get("wgCards"), state.get("wgBtnHidden"))
+                if shape == previous:
+                    stable += 1
+                    if stable >= 2:
+                        return state
+                else:
+                    stable = 0
+                previous = shape
+            time.sleep(0.25)
+        raise RuntimeError("the page never settled: its card counts kept changing")
 
 
 def check(results, name, condition, message):
