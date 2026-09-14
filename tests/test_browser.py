@@ -18,8 +18,8 @@ import subrender
 from cdp import CdpClient, ChromeProcess, NetworkRecorder, find_chrome
 
 VLESS = [
-    "vless://11111111-2222-3333-4444-555555555555@1.2.3.4:443?type=tcp#node-a",
-    "vless://11111111-2222-3333-4444-666666666666@5.6.7.8:443?type=ws#node-b",
+    "vless://11111111-2222-3333-4444-555555555555@192.0.2.4:443?type=tcp#node-a",
+    "vless://11111111-2222-3333-4444-666666666666@198.51.100.8:443?type=ws#node-b",
 ]
 
 
@@ -28,19 +28,19 @@ def wg(private, host, public, address, tag):
 
 
 WG_OK = [
-    wg("cHJpdmF0ZWtleTE%3D", "1.2.3.4:51820", "cHVia2V5MQ%3D%3D", "10.0.0.2%2F32", "wg-one"),
-    wg("cHJpdmF0ZWtleTI%3D", "5.6.7.8:51820", "cHVia2V5Mg%3D%3D", "10.0.0.3%2F32", "wg-two"),
-    wg("cHJpdmF0ZWtleTM%3D", "1.2.3.5:51820", "cHVia2V5Mw%3D%3D", "10.0.0.4%2F32", "wg-three"),
+    wg("cHJpdmF0ZWtleTE%3D", "192.0.2.4:51820", "cHVia2V5MQ%3D%3D", "10.0.0.2%2F32", "wg-one"),
+    wg("cHJpdmF0ZWtleTI%3D", "198.51.100.8:51820", "cHVia2V5Mg%3D%3D", "10.0.0.3%2F32", "wg-two"),
+    wg("cHJpdmF0ZWtleTM%3D", "192.0.2.5:51820", "cHVia2V5Mw%3D%3D", "10.0.0.4%2F32", "wg-three"),
 ]
 
 WG_BAD = [
-    "wireguard://%ZZ@1.2.3.4:51820/?publickey=cHVia2V5#bad-percent-private",
-    "wireguard://cHJpdmF0ZQ%3D%3D@1.2.3.4:51820/?address=10.0.0.9%2F32#missing-publickey",
+    "wireguard://%ZZ@192.0.2.4:51820/?publickey=cHVia2V5#bad-percent-private",
+    "wireguard://cHJpdmF0ZQ%3D%3D@192.0.2.4:51820/?address=10.0.0.9%2F32#missing-publickey",
     "wireguard://cHJpdmF0ZQ%3D%3D@/?publickey=cHVia2V5#missing-endpoint",
-    "wireguard://cHJpdmF0ZQ%3D%3D@1.2.3.4:51820/?publickey=%GG#bad-percent-public",
+    "wireguard://cHJpdmF0ZQ%3D%3D@192.0.2.4:51820/?publickey=%GG#bad-percent-public",
 ]
 
-WG_BROKEN_LABEL = "wireguard://cHJpdmF0ZQ%3D%3D@1.2.3.4:51820/?publickey=cHVia2V5#%ZZ"
+WG_BROKEN_LABEL = "wireguard://cHJpdmF0ZQ%3D%3D@192.0.2.4:51820/?publickey=cHVia2V5#%ZZ"
 
 WG_DUPE = [
     wg("a%3D", "abcdefghijkl.example.com:51820", "pk1", "10.0.0.2%2F32", "first"),
@@ -51,21 +51,21 @@ WG_DUPE = [
 WG_HASH = [
     wg(
         "cHJpdg%3D%3D",
-        "1.2.3.4:51820",
+        "192.0.2.4:51820",
         "cHVia2V5",
         "10.0.0.0%2F8%23%2C192.168.0.0%2F16",
         "hash-in-value",
     ),
 ]
 
-INJECTED_DIRECTIVE = "AllowedIPs = 5.6.7.8/32"
+INJECTED_DIRECTIVE = "AllowedIPs = 198.51.100.8/32"
 
 WG_INJECT = [
     wg(
         "cHJpdg%3D%3D",
-        "1.2.3.4:51820",
+        "192.0.2.4:51820",
         "cHVia2V5",
-        "10.0.0.2%2F32%0AAllowedIPs%20%3D%205.6.7.8%2F32",
+        "10.0.0.2%2F32%0AAllowedIPs%20%3D%20198.51.100.8%2F32",
         "injected",
     ),
 ]
@@ -78,7 +78,7 @@ OVPN = [
 L2TP = [
     {
         "remark": "L2TP EXAMPLE",
-        "server": "1.2.3.4",
+        "server": "192.0.2.4",
         "username": "exampleuser",
         "password": "examplepass",  # pragma: allowlist secret
         "secret": "examplesecret",  # pragma: allowlist secret

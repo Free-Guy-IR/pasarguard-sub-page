@@ -2,3 +2,5 @@
 *.bak-*
 .DS_Store
 __pycache__/
+tests/_layout/
+tests/_browser/

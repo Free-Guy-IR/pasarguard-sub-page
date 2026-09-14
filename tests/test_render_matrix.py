@@ -13,17 +13,17 @@ OVPN = [
 L2TP = [
     {
         "remark": "L2TP EXAMPLE",
-        "server": "1.2.3.4",
+        "server": "192.0.2.4",
         "username": "exampleuser",
         "password": "examplepass",  # pragma: allowlist secret
         "secret": "examplesecret",  # pragma: allowlist secret
     },
 ]
 WG = [
-    "wireguard://cHJpdmF0ZWtleTE%3D@1.2.3.4:51820/?publickey=cHVia2V5MQ%3D%3D&address=10.0.0.2%2F32",
-    "wireguard://cHJpdmF0ZWtleTI%3D@1.2.3.4:51821/?publickey=cHVia2V5Mg%3D%3D&address=10.0.0.3%2F32",
+    "wireguard://cHJpdmF0ZWtleTE%3D@192.0.2.4:51820/?publickey=cHVia2V5MQ%3D%3D&address=10.0.0.2%2F32",
+    "wireguard://cHJpdmF0ZWtleTI%3D@192.0.2.4:51821/?publickey=cHVia2V5Mg%3D%3D&address=10.0.0.3%2F32",
 ]
-VLESS = ["vless://11111111-2222-3333-4444-555555555555@1.2.3.4:443?type=tcp#node-a"]
+VLESS = ["vless://11111111-2222-3333-4444-555555555555@192.0.2.4:443?type=tcp#node-a"]
 
 CASES = [
     ("both protocols, active", VLESS + WG, OVPN, L2TP, "active"),
