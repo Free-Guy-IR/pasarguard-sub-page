@@ -30,6 +30,17 @@ jobs:
       - name: Translations
         run: python tests/test_i18n.py
 
+  deploy-script:
+    name: deploy script self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Deploy script self-test
+        run: bash tools/deploy_selftest.sh
+
   browser:
     name: browser fixtures
     runs-on: ubuntu-latest
