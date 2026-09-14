@@ -34,17 +34,22 @@ def build_environment(template_dir):
     return env
 
 
-def render(links, ovpn, l2tp, status, template=TEMPLATE):
+def render(links, ovpn, l2tp, status, template=TEMPLATE, announce_url="", app_url=None):
     template = Path(template).resolve()
     env = build_environment(template.parent)
+    apps = []
+    if app_url is not None:
+        apps = [{"name": "Happ", "icon_url": app_url, "import_url": app_url,
+                 "download_links": [{"platform": "android", "url": app_url}]}]
     return env.get_template(template.name).render(
         user=User(status),
         links=links,
         openvpn_configs=ovpn,
         l2tp_details=l2tp,
         subscription_url=SUBSCRIPTION_URL,
-        announce_url="",
-        support_url="",
-        icon_url="",
+        announce_url=announce_url,
+        support_url=app_url or "",
+        icon_url=app_url or "",
+        apps=apps,
         configs_hidden_by_hwid=False,
     )

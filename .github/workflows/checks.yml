@@ -30,6 +30,9 @@ jobs:
       - name: Translations
         run: python tests/test_i18n.py
 
+      - name: Escaping
+        run: python tests/test_escaping.py
+
   deploy-script:
     name: deploy script self-test
     runs-on: ubuntu-latest

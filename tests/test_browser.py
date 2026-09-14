@@ -409,7 +409,9 @@ def fixture_dupes(page, results, name, out_dir):
     check(results, name, state["wgCards"] == 3,
           "expected 3 WireGuard cards, got %s" % state["wgCards"])
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
     page.click("#wgDownloadAll")
     time.sleep(1.2)
     after = check_zip(page, results, name, 3, out_dir)
@@ -431,7 +433,9 @@ def fixture_case_collision(page, results, name, out_dir):
     state = page.wait_ready()
     check(results, name, state["wgCards"] == 2, "expected 2 WireGuard cards, got %s" % state["wgCards"])
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
     page.click("#wgDownloadAll")
     time.sleep(1.2)
     after = check_zip(page, results, name, 2, out_dir)
@@ -451,7 +455,9 @@ def fixture_hash(page, results, name, out_dir):
     check(results, name, state["wgCards"] == 1,
           "the link still belongs in the sheet, got %s" % state["wgCards"])
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
     page.click("#wgList .cfg .mini")
     time.sleep(0.5)
     after = page.snapshot()
@@ -532,7 +538,9 @@ def fixture_wg_only(page, results, name, out_dir):
     check(results, name, state["copyAllShown"] is False,
           "copy-all is still offered over an empty configs list")
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
     page.click("#wgDownloadAll")
     time.sleep(1.2)
     return check_zip(page, results, name, 3, out_dir)
