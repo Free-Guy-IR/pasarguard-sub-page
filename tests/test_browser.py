@@ -48,6 +48,11 @@ WG_DUPE = [
     wg("c%3D", "abcdefghijkl.example.com:51822", "pk3", "10.0.0.4%2F32", "third"),
 ]
 
+WG_CASE = [
+    wg("a%3D", "VPN.example.com:51820", "pk1", "10.0.0.2%2F32", "upper"),
+    wg("b%3D", "vpn.example.com:51821", "pk2", "10.0.0.3%2F32", "lower"),
+]
+
 WG_HASH = [
     wg(
         "cHJpdg%3D%3D",
@@ -379,6 +384,25 @@ def fixture_dupes(page, results, name, out_dir):
     return after
 
 
+def fixture_case_collision(page, results, name, out_dir):
+    state = page.wait_ready()
+    check(results, name, state["wgCards"] == 2, "expected 2 WireGuard cards, got %s" % state["wgCards"])
+    page.click("#wgBtn")
+    time.sleep(0.2)
+    page.click("#wgDownloadAll")
+    time.sleep(1.2)
+    after = check_zip(page, results, name, 2, out_dir)
+    raw = page.last_blob()
+    try:
+        names = zipfile.ZipFile(io.BytesIO(raw)).namelist()
+    except Exception:
+        return after
+    lowered = [n.lower() for n in names]
+    check(results, name, len(set(lowered)) == len(lowered),
+          "two entries differ only in case and would overwrite each other on macOS or Windows: %s" % names)
+    return after
+
+
 def fixture_hash(page, results, name, out_dir):
     state = page.wait_ready()
     check(results, name, state["wgCards"] == 1,
@@ -530,6 +554,7 @@ FIXTURES = [
     ("duplicate wireguard hosts", WG_DUPE, [], [], "active", fixture_dupes),
     ("newline injection", WG_INJECT, [], [], "active", fixture_injection),
     ("hash in a value", WG_HASH, [], [], "active", fixture_hash),
+    ("case-only host collision", WG_CASE, [], [], "active", fixture_case_collision),
     ("usable + unusable card", WG_OK[:1] + WG_BAD[:1], [], [], "active",
      fixture_unconvertible_card),
     ("wireguard only", WG_OK, [], [], "active", fixture_wg_only),

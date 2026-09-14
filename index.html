@@ -746,6 +746,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     if (h > -1) rest = rest.slice(0, h);
     var at = rest.indexOf("@");
     if (at < 0) return null;
+    if (uri.length > 8192) return null;
     var priv = unesc(rest.slice(0, at));
     var after = rest.slice(at + 1);
     var q = after.indexOf("?");
@@ -864,6 +865,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     });
     var dirSize = 0;
     dir.forEach(function (e) { dirSize += e.length; });
+    if (dirSize > 0xFFFFFFFE) throw new Error("zip range");
     var end = new Uint8Array(22);
     var ed = new DataView(end.buffer);
     ed.setUint32(0, 0x06054b50, true);
@@ -898,12 +900,12 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
       var base = conf.name.replace(/\.conf$/, "");
       var name = conf.name;
       var n = 2;
-      while (used[name]) {
+      while (used[name.toLowerCase()]) {
         var tail = "-" + n;
         name = base.slice(0, 15 - tail.length) + tail + ".conf";
         n++;
       }
-      used[name] = 1;
+      used[name.toLowerCase()] = 1;
       files.push({ name: name, body: conf.body });
     });
     return files;
