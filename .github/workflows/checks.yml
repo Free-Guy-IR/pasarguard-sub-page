@@ -62,3 +62,25 @@ jobs:
 
       - name: Browser fixtures
         run: python tests/test_browser.py
+
+  layout:
+    name: responsive layout
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Jinja2
+        run: pip install jinja2
+
+      - name: Locate Chrome
+        run: python -c "import sys; sys.path.insert(0, 'tests'); import cdp; b = cdp.find_chrome(); print(b or 'no chrome or chromium binary on this runner'); sys.exit(0 if b else 1)"
+
+      - name: Layout across locales and widths
+        run: python tests/test_layout.py

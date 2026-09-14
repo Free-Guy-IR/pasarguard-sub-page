@@ -34,7 +34,30 @@ LINKS = [
 OVPN = [{"protocol": "udp", "filename": "a.ovpn", "content": "client\n"}]
 L2TP = [{"remark": "L2TP", "server": "192.0.2.4", "username": "u", "password": "p", "secret": "s"}]
 
+VISIBLE_ACTIONS = """
+  function boxIsRendered(el) {
+    var rect = el.getBoundingClientRect();
+    if (!(rect.width > 0 && rect.height > 0)) return false;
+    var style = window.getComputedStyle(el);
+    if (style.display === "none") return false;
+    if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+    if (el.offsetParent === null && style.position !== "fixed") return false;
+    for (var node = el.parentElement; node; node = node.parentElement) {
+      var parentStyle = window.getComputedStyle(node);
+      if (parentStyle.display === "none") return false;
+      if (parentStyle.visibility === "hidden" || parentStyle.visibility === "collapse") return false;
+      if (parentStyle.contentVisibility === "hidden") return false;
+    }
+    return true;
+  }
+
+  function visibleActions() {
+    return Array.prototype.filter.call(document.querySelectorAll(".action"), boxIsRendered);
+  }
+"""
+
 READY = """(function () {
+  %s
   var cards = document.querySelectorAll(".cfg");
   var built = 0;
   Array.prototype.forEach.call(cards, function (c) { if (c.querySelector(".mini")) built++; });
@@ -43,9 +66,10 @@ READY = """(function () {
     ready: document.readyState === "complete" &&
       (cards.length > 0 ? built === cards.length
                         : !!cfgList && !!cfgList.querySelector(".empty")),
-    actions: document.querySelectorAll(".action:not([hidden])").length
+    actions: visibleActions().length,
+    present: document.querySelectorAll(".action").length
   });
-})()"""
+})()""" % VISIBLE_ACTIONS
 
 FONTS_READY = """(function () {
   if (!document.fonts || !document.fonts.ready) return Promise.resolve("no-font-api");
@@ -54,22 +78,42 @@ FONTS_READY = """(function () {
 
 SET_LANG = """(function () {
   var b = document.querySelector('.lang-btn[data-lang="%s"]');
-  if (!b) return "missing";
+  if (!b) return JSON.stringify({ ok: false, why: "missing" });
   b.click();
-  return document.documentElement.getAttribute("lang") || "clicked";
+  var probe = document.querySelector('#cfgBtn span') ||
+              document.querySelector('.action span');
+  return JSON.stringify({
+    ok: true,
+    lang: document.documentElement.getAttribute("lang"),
+    dir: document.documentElement.getAttribute("dir"),
+    sample: probe ? probe.textContent.trim() : null,
+    pressed: b.getAttribute("aria-pressed")
+  });
 })()"""
 
 PROBE = """(function () {
+  %s
   var out = {
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     docScroll: document.documentElement.scrollWidth,
     docClient: document.documentElement.clientWidth,
+    present: document.querySelectorAll(".action").length,
     labels: []
   };
-  Array.prototype.forEach.call(document.querySelectorAll(".action"), function (b) {
-    if (b.hidden) return;
+  var shown = visibleActions();
+  out.visible = shown.length;
+  shown.forEach(function (b) {
     var span = b.querySelector("span");
-    if (!span) return;
+    if (!span || !boxIsRendered(span)) {
+      out.labels.push({
+        text: b.id || b.className,
+        lines: 0,
+        textWidth: 0,
+        tileWidth: Math.round(b.getBoundingClientRect().width),
+        unlabelled: true
+      });
+      return;
+    }
     var style = window.getComputedStyle(span);
     var lineHeight = parseFloat(style.lineHeight);
     if (!lineHeight || isNaN(lineHeight)) lineHeight = parseFloat(style.fontSize) * 1.2;
@@ -79,11 +123,12 @@ PROBE = """(function () {
       text: span.textContent.trim(),
       lines: Math.round(rect.height / lineHeight),
       textWidth: Math.round(rect.width),
-      tileWidth: Math.round(tile.width)
+      tileWidth: Math.round(tile.width),
+      unlabelled: false
     });
   });
   return JSON.stringify(out);
-})()"""
+})()""" % VISIBLE_ACTIONS
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -157,19 +202,31 @@ def main():
         page = Page(client, sid)
         state = page.wait_ready()
         print("  fonts: %s" % page.wait_fonts())
+        print("  actions in the markup: %d, actually rendered: %d"
+              % (state["present"], state["actions"]))
 
         if state["actions"] != EXPECTED_ACTIONS:
-            failures.append("expected %d visible action buttons, found %d - a hidden button would "
-                            "make every width below pass for the wrong reason"
-                            % (EXPECTED_ACTIONS, state["actions"]))
+            failures.append("expected %d rendered action buttons, found %d of the %d in the markup "
+                            "- a button the user cannot see would make every width below pass for "
+                            "the wrong reason"
+                            % (EXPECTED_ACTIONS, state["actions"], state["present"]))
 
+        samples = {}
         for locale in LOCALES:
-            applied = page.evaluate(SET_LANG % locale)
-            if applied == "missing":
+            applied = json.loads(page.evaluate(SET_LANG % locale))
+            if not applied.get("ok"):
                 failures.append("no language button for %r" % locale)
                 continue
             page.wait_ready()
             page.wait_fonts()
+            applied = json.loads(page.evaluate(SET_LANG % locale))
+            if applied.get("lang") != locale:
+                failures.append("asked for %r but the page reports lang=%r - the switcher did "
+                                "nothing, so every measurement below would be one locale three times"
+                                % (locale, applied.get("lang")))
+            if applied.get("pressed") != "true":
+                failures.append("the %r language button never became the pressed one" % locale)
+            samples[locale] = applied.get("sample")
             for width in WIDTHS:
                 client.call("Emulation.setDeviceMetricsOverride",
                             {"width": width, "height": 900, "deviceScaleFactor": 2, "mobile": True},
@@ -177,13 +234,23 @@ def main():
                 page.wait_fonts()
                 data = json.loads(page.evaluate(PROBE))
                 widest = max((l["textWidth"] for l in data["labels"]), default=0)
-                print("  %s %dpx  buttons=%d  widest label=%dpx  tile=%dpx  overflow=%s"
-                      % (locale, width, len(data["labels"]), widest,
+                print("  %s measured=%dpx (asked %dpx)  buttons=%d/%d  widest label=%dpx  tile=%dpx  overflow=%s"
+                      % (locale, data["docClient"], width, data["visible"], data["present"], widest,
                          max((l["tileWidth"] for l in data["labels"]), default=0), data["overflow"]))
-                if len(data["labels"]) != EXPECTED_ACTIONS:
-                    failures.append("%s %dpx: measured %d buttons, expected %d"
-                                    % (locale, width, len(data["labels"]), EXPECTED_ACTIONS))
+                if data["docClient"] != width:
+                    failures.append("%s: asked for a %dpx viewport but the page laid out at %dpx - "
+                                    "every width in this run measured the wrong thing"
+                                    % (locale, width, data["docClient"]))
+                if data["visible"] != EXPECTED_ACTIONS:
+                    failures.append("%s %dpx: measured %d rendered buttons of the %d in the markup, "
+                                    "expected %d"
+                                    % (locale, width, data["visible"], data["present"],
+                                       EXPECTED_ACTIONS))
                 for label in data["labels"]:
+                    if label["unlabelled"]:
+                        failures.append("%s %dpx: %r is rendered with no visible label"
+                                        % (locale, width, label["text"]))
+                        continue
                     if label["lines"] > 1:
                         failures.append("%s %dpx: %r wraps onto %d lines"
                                         % (locale, width, label["text"], label["lines"]))
@@ -207,12 +274,18 @@ def main():
         shutil.rmtree(chrome.profile_dir, ignore_errors=True)
         server.shutdown()
 
+    distinct = {k: v for k, v in samples.items() if v}
+    if len(distinct) == len(LOCALES) and len(set(distinct.values())) == 1:
+        failures.append("every locale rendered the same label %r - the language buttons change the "
+                        "lang attribute without applying the string table"
+                        % next(iter(distinct.values())))
+
     print("")
     if failures:
         for item in failures:
             print("  FAIL: %s" % item)
         return 1
-    print("  PASS: %d buttons keep one-line labels inside their tiles at %s, in %s, with no sideways scroll"
+    print("  PASS: %d rendered buttons keep one-line labels inside their tiles at %s, in %s, with no sideways scroll"
           % (EXPECTED_ACTIONS, ", ".join("%dpx" % w for w in WIDTHS), "/".join(LOCALES)))
     return 0
 

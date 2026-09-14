@@ -123,11 +123,32 @@ window.__downloads = [];
 SNAPSHOT = """(function () {
   function has(id) { return !!document.getElementById(id); }
   function hidden(id) { var e = document.getElementById(id); return e ? !!e.hidden : null; }
+  function boxIsRendered(el) {
+    if (!el) return false;
+    var rect = el.getBoundingClientRect();
+    if (!(rect.width > 0 && rect.height > 0)) return false;
+    var style = window.getComputedStyle(el);
+    if (style.display === "none") return false;
+    if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+    if (el.offsetParent === null && style.position !== "fixed") return false;
+    for (var node = el.parentElement; node; node = node.parentElement) {
+      var parentStyle = window.getComputedStyle(node);
+      if (parentStyle.display === "none") return false;
+      if (parentStyle.visibility === "hidden" || parentStyle.visibility === "collapse") return false;
+      if (parentStyle.contentVisibility === "hidden") return false;
+    }
+    return true;
+  }
   function shown(id) {
     var e = document.getElementById(id);
     if (!e) return null;
-    var s = window.getComputedStyle(e);
-    return s.display !== "none" && s.visibility !== "hidden";
+    return boxIsRendered(e);
+  }
+  function sheetIsOpen(id) {
+    var m = document.getElementById(id);
+    if (!m) return null;
+    if (!m.hasAttribute("open")) return false;
+    return boxIsRendered(m) && boxIsRendered(m.querySelector(".sheet"));
   }
   var out = {};
   var cfgList = document.getElementById("cfgList");
@@ -158,15 +179,18 @@ SNAPSHOT = """(function () {
   out.wgBtnHidden = hidden("wgBtn");
   out.wgBtnShown = shown("wgBtn");
   out.wgModal = has("wgModal");
-  out.wgModalOpen = has("wgModal") && document.getElementById("wgModal").hasAttribute("open");
+  out.wgModalOpen = sheetIsOpen("wgModal");
+  out.wgModalAttr = has("wgModal") && document.getElementById("wgModal").hasAttribute("open");
   out.wgAll = has("wgDownloadAll");
   out.wgAllShown = shown("wgDownloadAll");
   out.ovpnBtn = has("ovpnBtn");
   out.ovpnModal = has("ovpnModal");
-  out.ovpnModalOpen = has("ovpnModal") && document.getElementById("ovpnModal").hasAttribute("open");
+  out.ovpnModalOpen = sheetIsOpen("ovpnModal");
+  out.ovpnModalAttr = has("ovpnModal") && document.getElementById("ovpnModal").hasAttribute("open");
   out.l2tpBtn = has("l2tpBtn");
   out.l2tpModal = has("l2tpModal");
-  out.l2tpModalOpen = has("l2tpModal") && document.getElementById("l2tpModal").hasAttribute("open");
+  out.l2tpModalOpen = sheetIsOpen("l2tpModal");
+  out.l2tpModalAttr = has("l2tpModal") && document.getElementById("l2tpModal").hasAttribute("open");
   out.blobs = (window.__blobParts || []).length;
   out.blobHeads = (window.__blobParts || []).map(function (b) { return b.slice(0, 11); });
   out.blobBodies = window.__blobParts || [];
@@ -258,6 +282,8 @@ def fixture_none(page, results, name, out_dir):
     check(results, name, state["wgBtnHidden"] is True, "WireGuard button should stay hidden")
     check(results, name, state["wgBtnShown"] is False, "hidden WireGuard button is still painted")
     check(results, name, state["wgModal"], "the WireGuard sheet is missing from the page")
+    check(results, name, state["wgModalOpen"] is False,
+          "the WireGuard sheet is painted even though this subscription has no WireGuard links")
     check(results, name, state["cfgCards"] == 2,
           "expected the 2 vless cards, got %s" % state["cfgCards"])
     return state
@@ -273,13 +299,12 @@ def fixture_one(page, results, name, out_dir):
           "expected 2 remaining cards, got %s" % state["cfgCards"])
     check(results, name, state["wgBtnHidden"] is False, "WireGuard button should be visible")
     check(results, name, state["wgBtnShown"] is True, "visible WireGuard button is not painted")
-    check(results, name, state["wgAllShown"] is False,
-          "download-all should hide for a single file")
-
     page.click("#wgBtn")
     time.sleep(0.3)
     opened = page.snapshot()
     check(results, name, opened["wgModalOpen"], "clicking the button did not open the sheet")
+    check(results, name, opened["wgAllShown"] is False,
+          "download-all should hide for a single file, even with the sheet open")
     check(results, name, opened["bodyOverflow"] == "hidden",
           "the page behind the sheet still scrolls")
 
@@ -351,10 +376,11 @@ def fixture_many(page, results, name, out_dir):
           "expected 3 WireGuard cards, got %s" % state["wgCards"])
     check(results, name, state["wgLeftInConfigs"] == 0,
           "WireGuard left in the configs list: %s" % state["wgLeaked"])
-    check(results, name, state["wgAllShown"] is True, "download-all should show for 3 files")
-
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    opened = page.snapshot()
+    check(results, name, opened["wgModalOpen"], "clicking the button did not open the sheet")
+    check(results, name, opened["wgAllShown"] is True, "download-all should show for 3 files")
     page.click("#wgDownloadAll")
     time.sleep(1.2)
     return check_zip(page, results, name, 3, out_dir)
@@ -367,11 +393,12 @@ def fixture_malformed(page, results, name, out_dir):
     check(results, name, state["wgLeftInConfigs"] == 0,
           "no WireGuard link should stay in the configs list, found %s" % state["wgLeftInConfigs"])
     check(results, name, state["wgBtnHidden"] is False, "WireGuard button should be visible")
-    check(results, name, state["wgAllShown"] is True,
-          "download-all should show for 3 usable files")
-
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    opened = page.snapshot()
+    check(results, name, opened["wgModalOpen"], "clicking the button did not open the sheet")
+    check(results, name, opened["wgAllShown"] is True,
+          "download-all should show for 3 usable files")
     page.click("#wgDownloadAll")
     time.sleep(1.2)
     return check_zip(page, results, name, 3, out_dir)
@@ -439,17 +466,19 @@ def fixture_unconvertible_card(page, results, name, out_dir):
     check(results, name, state["wgCards"] == 2,
           "both links belong in the sheet, got %s" % state["wgCards"])
     check(results, name, state["wgLeftInConfigs"] == 0, "nothing should be left behind")
-    check(results, name, state["wgAllShown"] is False,
-          "only one link is usable, so download-all must stay hidden")
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    opened = page.snapshot()
+    check(results, name, opened["wgModalOpen"], "clicking the button did not open the sheet")
+    check(results, name, opened["wgAllShown"] is False,
+          "only one link is usable, so download-all must stay hidden with the sheet open")
     cards = page.evaluate(
         "JSON.stringify(Array.prototype.map.call("
         "document.querySelectorAll('#wgList .cfg'), function (c) {"
         "  var b = c.querySelector('.mini');"
         "  return { uri: c.getAttribute('data-uri').slice(0, 30),"
         "           label: b ? b.getAttribute('aria-label') : null,"
-        "           qr: !!c.querySelector('button:nth-child(2)') };"
+        "           buttons: c.querySelectorAll('button.mini').length };"
         "}))"
     )
     cards = json.loads(cards)
@@ -457,6 +486,10 @@ def fixture_unconvertible_card(page, results, name, out_dir):
     labels = [c["label"] for c in cards]
     check(results, name, len(set(labels)) == 2,
           "the usable and unusable cards should offer different actions, got %s" % labels)
+    for card in cards:
+        check(results, name, card["buttons"] == 2,
+              "a card in the sheet offers %d buttons, expected a download-or-copy and a QR: %s"
+              % (card["buttons"], card["uri"]))
     page.click("#wgList .cfg:last-child .mini")
     time.sleep(0.5)
     after = page.snapshot()
@@ -469,10 +502,12 @@ def fixture_injection(page, results, name, out_dir):
     state = page.wait_ready()
     check(results, name, state["wgCards"] == 1,
           "the link still belongs in the sheet, got %s" % state["wgCards"])
-    check(results, name, state["wgAllShown"] is False,
-          "download-all must stay hidden for one file")
     page.click("#wgBtn")
-    time.sleep(0.2)
+    time.sleep(0.3)
+    opened = page.snapshot()
+    check(results, name, opened["wgModalOpen"], "clicking the button did not open the sheet")
+    check(results, name, opened["wgAllShown"] is False,
+          "download-all must stay hidden for one file, even with the sheet open")
     page.click("#wgList .cfg .mini")
     time.sleep(0.5)
     after = page.snapshot()
@@ -492,9 +527,10 @@ def fixture_wg_only(page, results, name, out_dir):
     check(results, name, state["cfgCards"] == 0,
           "the configs list should be empty, got %s" % state["cfgCards"])
     check(results, name, state["wgBtnHidden"] is False, "WireGuard button should be visible")
-    check(results, name, state["cfgListChildren"] == 0 or state["cfgEmptyShown"],
-          "the emptied configs list shows %d leftover children and no empty state"
-          % state["cfgListChildren"])
+    check(results, name, state["cfgEmptyShown"] is True,
+          "the emptied configs list has no empty state, it just shows nothing")
+    check(results, name, state["copyAllShown"] is False,
+          "copy-all is still offered over an empty configs list")
     page.click("#wgBtn")
     time.sleep(0.2)
     page.click("#wgDownloadAll")
