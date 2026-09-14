@@ -223,6 +223,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
 .l2c{width:30px; height:30px; border-radius:10px; background:var(--card)}
 :root[data-theme="dark"] .l2c{background:var(--slate-bg)}
 .wide{width:100%; padding:12px; border-radius:15px; background:var(--primary); color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:12px; transition:transform .12s}
+[hidden]{display:none !important}
 .wide:active{transform:scale(.98)}
 .qr-wrap{background:#fff; border-radius:18px; padding:14px; display:grid; place-items:center; margin:0 auto 14px; max-width:264px}
 .qr-wrap img,.qr-wrap canvas{display:block; width:100%; height:auto; max-width:236px}
@@ -416,6 +417,10 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
         <span data-i18n="l2tpTitle">اتصال L2TP</span>
       </button>
       {% endif %}
+      <button class="action" type="button" id="wgBtn" hidden>
+        <div class="ico wg"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="M9 12h6"/><path d="M12 9v6"/></svg></div>
+        <span data-i18n="wgTitle">WireGuard</span>
+      </button>
       <button class="action" type="button" id="tgBtn" hidden>
         <div class="ico telegram"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.94 4.6 18.6 20.3c-.25 1.1-.9 1.38-1.83.86l-5.05-3.72-2.44 2.35c-.27.27-.5.5-1.02.5l.36-5.14 9.36-8.46c.4-.36-.09-.56-.63-.2L5.78 13.2.8 11.64c-1.08-.34-1.1-1.08.23-1.6L20.54 2.5c.9-.33 1.69.2 1.4 2.1Z"/></svg></div>
         <span data-i18n="telegramProxy">پروکسی تلگرام</span>
@@ -519,6 +524,20 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
   </div>
 </div>
 
+<div class="modal" id="wgModal" role="dialog" aria-modal="true" aria-label="WireGuard" data-i18n-aria="wgTitle">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 data-i18n="wgYours">فایل‌های وایرگارد شما</h2>
+      <button class="x" type="button" id="wgClose" aria-label="بستن" data-i18n-aria="close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <button class="wide" type="button" id="wgDownloadAll" hidden>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span data-i18n="wgDownloadAll">دانلود همه فایل‌ها</span>
+    </button>
+    <div id="wgList"></div>
+  </div>
+</div>
+
 <div class="modal" id="tgModal" role="dialog" aria-modal="true" aria-label="پروکسی تلگرام" data-i18n-aria="telegramProxy">
   <div class="sheet">
     <div class="sheet-head">
@@ -533,7 +552,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
   </div>
 </div>
 
-{% if l2tp_details and st in ('active','on_hold') %}
+{% if openvpn_configs and st in ('active','on_hold') %}
 <div class="modal" id="ovpnModal" role="dialog" aria-modal="true" aria-label="OpenVPN" data-i18n-aria="openvpnTitle">
   <div class="sheet">
     <div class="sheet-head">
@@ -561,7 +580,9 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     </div>
   </div>
 </div>
+{% endif %}
 
+{% if l2tp_details and st in ('active','on_hold') %}
 <div class="modal" id="l2tpModal" role="dialog" aria-modal="true" aria-label="اتصال L2TP" data-i18n-aria="l2tpTitle">
   <div class="sheet">
     <div class="sheet-head">
@@ -631,7 +652,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
   var LANGS = ["fa", "en", "ru"];
   var LANG_NAME = { fa: "فارسی", en: "English", ru: "Русский" };
   var RTL = { fa: 1 };
-  var STRINGS = {"fa": {"sub.title": "کانفیگ‌ها را دستی اضافه نکنید", "sub.p1": "لطفاً حتماً لینک اشتراک را مستقیماً داخل برنامه وارد کنید، نه کانفیگ‌ها را تک‌تک از این صفحه.", "sub.p2": "این‌طور سرورها به‌صورت خودکار در برنامه بروز می‌شوند و هر تغییری را بدون کار دستی می‌گیرید.", "sub.copy": "کپی لینک اشتراک", "sub.copied": "لینک اشتراک کپی شد", "title": "صفحه پروفایل کاربری", "subtitle": "مدیریت اشتراک شما", "theme": "تغییر پوسته", "language": "تغییر زبان", "account": "شناسه کانفیگ", "st.active": "فعال", "st.on_hold": "در انتظار شروع", "st.expired": "منقضی", "st.limited": "حجم تمام شد", "st.disabled": "غیرفعال", "duration": "مدت زمان", "days": "روز", "hours": "ساعت", "ended": "پایان‌یافته", "daysAfterStart": "روز پس از شروع", "unlimited": "نامحدود", "traffic": "حجم ترافیک", "totalLabel": "کل:", "remaining": "باقی‌مانده", "support": "پشتیبانی", "configs": "کانفیگ‌ها", "quickAdd": "افزودن سریع به اپلیکیشن", "add": "افزودن", "downloadApps": "دانلود برنامه‌های اتصال", "os.android": "اندروید", "os.ios": "آیفون", "os.windows": "ویندوز", "os.macos": "مک", "os.linux": "لینوکس", "warn.expired": "اشتراک شما به پایان رسیده است.", "warn.limited": "حجم اشتراک شما تمام شده است.", "warn.disabled": "این اشتراک غیرفعال است.", "yourConfigs": "کانفیگ‌های شما", "close": "بستن", "copyAll": "کپی همه کانفیگ‌ها", "noConfigs": "کانفیگی برای نمایش نیست.", "qr": "بارکد", "qrTitle": "بارکد کانفیگ", "downloaded": "دانلود شد", "copied": "کپی شد", "copyFailed": "کپی نشد", "config": "کانفیگ", "download": "دانلود فایل", "copy": "کپی", "downloadWg": "دانلود فایل وایرگارد", "copyConfig": "کپی کانفیگ", "showQr": "نمایش بارکد", "telegramProxy": "پروکسی تلگرام", "yourProxies": "پروکسی‌های تلگرام شما", "copyAllProxies": "کپی همه پروکسی‌ها", "noProxies": "پروکسی‌ای برای نمایش نیست.", "openvpnTitle": "OpenVPN", "openvpnYours": "کانفیگ‌های OpenVPN شما", "openvpnDownloadAll": "دانلود همه کانفیگ‌ها", "openvpnDownload": "دانلود این کانفیگ", "openvpnReady": "آمادهٔ دانلود", "openvpnDownloadShort": "دانلود", "l2tpTitle": "اتصال L2TP", "l2tpYours": "سرورهای L2TP شما", "l2tpCopyAll": "کپی همه سرورها", "l2tpCopyField": "کپی مقدار", "l2tp.server": "آدرس سرور", "l2tp.username": "نام کاربری", "l2tp.password": "رمز عبور", "l2tp.secret": "رمز مشترک", "hwid.title": "این اشتراک نامحدود تک‌کاربره است", "hwid.p1": "کانفیگ‌ها از این صفحه قابل برداشتن نیستند.", "hwid.p2": "لینک اشتراک را بدون باز کردن در مرورگر، مستقیماً داخل برنامهٔ v2box یا Happ وارد کنید.", "hwid.p3": "ممکن است بقیهٔ برنامه‌ها اصلاً وصل نشوند.", "hwid.p4": "فقط یک بار و روی یک برنامه و یک گوشی قابل استفاده است؛ بعد از آن نه برنامه را می‌توانید عوض کنید نه گوشی را.", "hwid.copy": "کپی لینک اشتراک", "hwid.copied": "لینک اشتراک کپی شد"}, "en": {"sub.title": "Do not add configs by hand", "sub.p1": "Please import the subscription link straight into your app instead of copying configs one by one from this page.", "sub.p2": "That way the servers update themselves in the app and you get every change without doing anything.", "sub.copy": "Copy subscription link", "sub.copied": "Subscription link copied", "title": "Your profile", "subtitle": "Manage your subscription", "theme": "Toggle theme", "language": "Change language", "account": "Account", "st.active": "Active", "st.on_hold": "Not started", "st.expired": "Expired", "st.limited": "Data used up", "st.disabled": "Disabled", "duration": "Time left", "days": "days", "hours": "hours", "ended": "Ended", "daysAfterStart": "days after first use", "unlimited": "Unlimited", "traffic": "Data used", "totalLabel": "of", "remaining": "left", "support": "Support", "configs": "Configs", "quickAdd": "Quick add to an app", "add": "Add", "downloadApps": "Download a client", "os.android": "Android", "os.ios": "iPhone", "os.windows": "Windows", "os.macos": "macOS", "os.linux": "Linux", "warn.expired": "Your subscription has expired.", "warn.limited": "You have used all your data.", "warn.disabled": "This subscription is disabled.", "yourConfigs": "Your configs", "close": "Close", "copyAll": "Copy all configs", "noConfigs": "Nothing to show here.", "qr": "QR code", "qrTitle": "Config QR code", "downloaded": "Downloaded", "copied": "Copied", "copyFailed": "Could not copy", "config": "Config", "download": "Download file", "copy": "Copy", "downloadWg": "Download WireGuard file", "copyConfig": "Copy config", "showQr": "Show QR code", "telegramProxy": "Telegram proxy", "yourProxies": "Your Telegram proxies", "copyAllProxies": "Copy all proxies", "noProxies": "No proxies to show.", "openvpnTitle": "OpenVPN", "openvpnYours": "Your OpenVPN configs", "openvpnDownloadAll": "Download all configs", "openvpnDownload": "Download this config", "openvpnReady": "Ready to download", "openvpnDownloadShort": "Download", "l2tpTitle": "L2TP/IPsec", "l2tpYours": "Your L2TP servers", "l2tpCopyAll": "Copy all servers", "l2tpCopyField": "Copy value", "l2tp.server": "Server address", "l2tp.username": "Username", "l2tp.password": "Password", "l2tp.secret": "Pre-shared key", "hwid.title": "This subscription is unlimited and single-user", "hwid.p1": "Configs cannot be taken from this page.", "hwid.p2": "Paste the subscription link straight into v2box or Happ, without opening it in a browser.", "hwid.p3": "Other apps may not connect at all.", "hwid.p4": "It can be imported once, into one app on one phone. After that you cannot change the app or the phone.", "hwid.copy": "Copy subscription link", "hwid.copied": "Subscription link copied"}, "ru": {"sub.title": "Не добавляйте конфиги вручную", "sub.p1": "Вставьте ссылку подписки прямо в приложение вместо копирования конфигов по одному с этой страницы.", "sub.p2": "Тогда серверы обновляются в приложении сами, и вы получаете все изменения без ручной работы.", "sub.copy": "Скопировать ссылку подписки", "sub.copied": "Ссылка подписки скопирована", "title": "Ваш профиль", "subtitle": "Управление подпиской", "theme": "Сменить тему", "language": "Сменить язык", "account": "Аккаунт", "st.active": "Активна", "st.on_hold": "Не начата", "st.expired": "Истекла", "st.limited": "Трафик исчерпан", "st.disabled": "Отключена", "duration": "Осталось времени", "days": "дн.", "hours": "ч.", "ended": "Завершена", "daysAfterStart": "дн. после старта", "unlimited": "Безлимит", "traffic": "Трафик", "totalLabel": "из", "remaining": "осталось", "support": "Поддержка", "configs": "Конфиги", "quickAdd": "Быстрое добавление в приложение", "add": "Добавить", "downloadApps": "Скачать клиент", "os.android": "Android", "os.ios": "iPhone", "os.windows": "Windows", "os.macos": "macOS", "os.linux": "Linux", "warn.expired": "Срок вашей подписки истёк.", "warn.limited": "Вы израсходовали весь трафик.", "warn.disabled": "Эта подписка отключена.", "yourConfigs": "Ваши конфиги", "close": "Закрыть", "copyAll": "Копировать все конфиги", "noConfigs": "Здесь пока пусто.", "qr": "QR-код", "qrTitle": "QR-код конфига", "downloaded": "Скачано", "copied": "Скопировано", "copyFailed": "Не удалось скопировать", "config": "Конфиг", "download": "Скачать файл", "copy": "Копировать", "downloadWg": "Скачать файл WireGuard", "copyConfig": "Копировать конфиг", "showQr": "Показать QR-код", "telegramProxy": "Telegram-прокси", "yourProxies": "Ваши Telegram-прокси", "copyAllProxies": "Копировать все прокси", "noProxies": "Нет прокси для показа.", "openvpnTitle": "OpenVPN", "openvpnYours": "Ваши конфиги OpenVPN", "openvpnDownloadAll": "Скачать все конфиги", "openvpnDownload": "Скачать этот конфиг", "openvpnReady": "Готов к загрузке", "openvpnDownloadShort": "Скачать", "l2tpTitle": "L2TP/IPsec", "l2tpYours": "Ваши L2TP-серверы", "l2tpCopyAll": "Копировать все серверы", "l2tpCopyField": "Копировать значение", "l2tp.server": "Адрес сервера", "l2tp.username": "Имя пользователя", "l2tp.password": "Пароль", "l2tp.secret": "Общий ключ", "hwid.title": "Эта подписка безлимитная и однопользовательская", "hwid.p1": "Конфигурации нельзя скопировать с этой страницы.", "hwid.p2": "Вставьте ссылку подписки сразу в v2box или Happ, не открывая её в браузере.", "hwid.p3": "Другие приложения могут вообще не подключиться.", "hwid.p4": "Импорт возможен один раз, в одно приложение на одном телефоне. После этого нельзя сменить ни приложение, ни телефон.", "hwid.copy": "Скопировать ссылку подписки", "hwid.copied": "Ссылка подписки скопирована"}};
+  var STRINGS = {"fa": {"sub.title": "کانفیگ‌ها را دستی اضافه نکنید", "sub.p1": "لطفاً حتماً لینک اشتراک را مستقیماً داخل برنامه وارد کنید، نه کانفیگ‌ها را تک‌تک از این صفحه.", "sub.p2": "این‌طور سرورها به‌صورت خودکار در برنامه بروز می‌شوند و هر تغییری را بدون کار دستی می‌گیرید.", "sub.copy": "کپی لینک اشتراک", "sub.copied": "لینک اشتراک کپی شد", "title": "صفحه پروفایل کاربری", "subtitle": "مدیریت اشتراک شما", "theme": "تغییر پوسته", "language": "تغییر زبان", "account": "شناسه کانفیگ", "st.active": "فعال", "st.on_hold": "در انتظار شروع", "st.expired": "منقضی", "st.limited": "حجم تمام شد", "st.disabled": "غیرفعال", "duration": "مدت زمان", "days": "روز", "hours": "ساعت", "ended": "پایان‌یافته", "daysAfterStart": "روز پس از شروع", "unlimited": "نامحدود", "traffic": "حجم ترافیک", "totalLabel": "کل:", "remaining": "باقی‌مانده", "support": "پشتیبانی", "configs": "کانفیگ‌ها", "quickAdd": "افزودن سریع به اپلیکیشن", "add": "افزودن", "downloadApps": "دانلود برنامه‌های اتصال", "os.android": "اندروید", "os.ios": "آیفون", "os.windows": "ویندوز", "os.macos": "مک", "os.linux": "لینوکس", "warn.expired": "اشتراک شما به پایان رسیده است.", "warn.limited": "حجم اشتراک شما تمام شده است.", "warn.disabled": "این اشتراک غیرفعال است.", "yourConfigs": "کانفیگ‌های شما", "close": "بستن", "copyAll": "کپی همه کانفیگ‌ها", "noConfigs": "کانفیگی برای نمایش نیست.", "qr": "بارکد", "qrTitle": "بارکد کانفیگ", "downloaded": "دانلود شد", "copied": "کپی شد", "copyFailed": "کپی نشد", "config": "کانفیگ", "download": "دانلود فایل", "copy": "کپی", "downloadWg": "دانلود فایل وایرگارد", "copyConfig": "کپی کانفیگ", "showQr": "نمایش بارکد", "wgTitle": "وایرگارد", "wgYours": "فایل‌های وایرگارد شما", "wgDownloadAll": "دانلود همه فایل‌ها", "telegramProxy": "پروکسی تلگرام", "yourProxies": "پروکسی‌های تلگرام شما", "copyAllProxies": "کپی همه پروکسی‌ها", "noProxies": "پروکسی‌ای برای نمایش نیست.", "openvpnTitle": "OpenVPN", "openvpnYours": "کانفیگ‌های OpenVPN شما", "openvpnDownloadAll": "دانلود همه کانفیگ‌ها", "openvpnDownload": "دانلود این کانفیگ", "openvpnReady": "آمادهٔ دانلود", "openvpnDownloadShort": "دانلود", "l2tpTitle": "اتصال L2TP", "l2tpYours": "سرورهای L2TP شما", "l2tpCopyAll": "کپی همه سرورها", "l2tpCopyField": "کپی مقدار", "l2tp.server": "آدرس سرور", "l2tp.username": "نام کاربری", "l2tp.password": "رمز عبور", "l2tp.secret": "رمز مشترک", "hwid.title": "این اشتراک نامحدود تک‌کاربره است", "hwid.p1": "کانفیگ‌ها از این صفحه قابل برداشتن نیستند.", "hwid.p2": "لینک اشتراک را بدون باز کردن در مرورگر، مستقیماً داخل برنامهٔ v2box یا Happ وارد کنید.", "hwid.p3": "ممکن است بقیهٔ برنامه‌ها اصلاً وصل نشوند.", "hwid.p4": "فقط یک بار و روی یک برنامه و یک گوشی قابل استفاده است؛ بعد از آن نه برنامه را می‌توانید عوض کنید نه گوشی را.", "hwid.copy": "کپی لینک اشتراک", "hwid.copied": "لینک اشتراک کپی شد", "dlFailed": "دانلود نشد"}, "en": {"sub.title": "Do not add configs by hand", "sub.p1": "Please import the subscription link straight into your app instead of copying configs one by one from this page.", "sub.p2": "That way the servers update themselves in the app and you get every change without doing anything.", "sub.copy": "Copy subscription link", "sub.copied": "Subscription link copied", "title": "Your profile", "subtitle": "Manage your subscription", "theme": "Toggle theme", "language": "Change language", "account": "Account", "st.active": "Active", "st.on_hold": "Not started", "st.expired": "Expired", "st.limited": "Data used up", "st.disabled": "Disabled", "duration": "Time left", "days": "days", "hours": "hours", "ended": "Ended", "daysAfterStart": "days after first use", "unlimited": "Unlimited", "traffic": "Data used", "totalLabel": "of", "remaining": "left", "support": "Support", "configs": "Configs", "quickAdd": "Quick add to an app", "add": "Add", "downloadApps": "Download a client", "os.android": "Android", "os.ios": "iPhone", "os.windows": "Windows", "os.macos": "macOS", "os.linux": "Linux", "warn.expired": "Your subscription has expired.", "warn.limited": "You have used all your data.", "warn.disabled": "This subscription is disabled.", "yourConfigs": "Your configs", "close": "Close", "copyAll": "Copy all configs", "noConfigs": "Nothing to show here.", "qr": "QR code", "qrTitle": "Config QR code", "downloaded": "Downloaded", "copied": "Copied", "copyFailed": "Could not copy", "config": "Config", "download": "Download file", "copy": "Copy", "downloadWg": "Download WireGuard file", "copyConfig": "Copy config", "showQr": "Show QR code", "wgTitle": "WireGuard", "wgYours": "Your WireGuard files", "wgDownloadAll": "Download all files", "telegramProxy": "Telegram proxy", "yourProxies": "Your Telegram proxies", "copyAllProxies": "Copy all proxies", "noProxies": "No proxies to show.", "openvpnTitle": "OpenVPN", "openvpnYours": "Your OpenVPN configs", "openvpnDownloadAll": "Download all configs", "openvpnDownload": "Download this config", "openvpnReady": "Ready to download", "openvpnDownloadShort": "Download", "l2tpTitle": "L2TP/IPsec", "l2tpYours": "Your L2TP servers", "l2tpCopyAll": "Copy all servers", "l2tpCopyField": "Copy value", "l2tp.server": "Server address", "l2tp.username": "Username", "l2tp.password": "Password", "l2tp.secret": "Pre-shared key", "hwid.title": "This subscription is unlimited and single-user", "hwid.p1": "Configs cannot be taken from this page.", "hwid.p2": "Paste the subscription link straight into v2box or Happ, without opening it in a browser.", "hwid.p3": "Other apps may not connect at all.", "hwid.p4": "It can be imported once, into one app on one phone. After that you cannot change the app or the phone.", "hwid.copy": "Copy subscription link", "hwid.copied": "Subscription link copied", "dlFailed": "Download failed"}, "ru": {"sub.title": "Не добавляйте конфиги вручную", "sub.p1": "Вставьте ссылку подписки прямо в приложение вместо копирования конфигов по одному с этой страницы.", "sub.p2": "Тогда серверы обновляются в приложении сами, и вы получаете все изменения без ручной работы.", "sub.copy": "Скопировать ссылку подписки", "sub.copied": "Ссылка подписки скопирована", "title": "Ваш профиль", "subtitle": "Управление подпиской", "theme": "Сменить тему", "language": "Сменить язык", "account": "Аккаунт", "st.active": "Активна", "st.on_hold": "Не начата", "st.expired": "Истекла", "st.limited": "Трафик исчерпан", "st.disabled": "Отключена", "duration": "Осталось времени", "days": "дн.", "hours": "ч.", "ended": "Завершена", "daysAfterStart": "дн. после старта", "unlimited": "Безлимит", "traffic": "Трафик", "totalLabel": "из", "remaining": "осталось", "support": "Поддержка", "configs": "Конфиги", "quickAdd": "Быстрое добавление в приложение", "add": "Добавить", "downloadApps": "Скачать клиент", "os.android": "Android", "os.ios": "iPhone", "os.windows": "Windows", "os.macos": "macOS", "os.linux": "Linux", "warn.expired": "Срок вашей подписки истёк.", "warn.limited": "Вы израсходовали весь трафик.", "warn.disabled": "Эта подписка отключена.", "yourConfigs": "Ваши конфиги", "close": "Закрыть", "copyAll": "Копировать все конфиги", "noConfigs": "Здесь пока пусто.", "qr": "QR-код", "qrTitle": "QR-код конфига", "downloaded": "Скачано", "copied": "Скопировано", "copyFailed": "Не удалось скопировать", "config": "Конфиг", "download": "Скачать файл", "copy": "Копировать", "downloadWg": "Скачать файл WireGuard", "copyConfig": "Копировать конфиг", "showQr": "Показать QR-код", "wgTitle": "WireGuard", "wgYours": "Ваши файлы WireGuard", "wgDownloadAll": "Скачать все файлы", "telegramProxy": "Telegram-прокси", "yourProxies": "Ваши Telegram-прокси", "copyAllProxies": "Копировать все прокси", "noProxies": "Нет прокси для показа.", "openvpnTitle": "OpenVPN", "openvpnYours": "Ваши конфиги OpenVPN", "openvpnDownloadAll": "Скачать все конфиги", "openvpnDownload": "Скачать этот конфиг", "openvpnReady": "Готов к загрузке", "openvpnDownloadShort": "Скачать", "l2tpTitle": "L2TP/IPsec", "l2tpYours": "Ваши L2TP-серверы", "l2tpCopyAll": "Копировать все серверы", "l2tpCopyField": "Копировать значение", "l2tp.server": "Адрес сервера", "l2tp.username": "Имя пользователя", "l2tp.password": "Пароль", "l2tp.secret": "Общий ключ", "hwid.title": "Эта подписка безлимитная и однопользовательская", "hwid.p1": "Конфигурации нельзя скопировать с этой страницы.", "hwid.p2": "Вставьте ссылку подписки сразу в v2box или Happ, не открывая её в браузере.", "hwid.p3": "Другие приложения могут вообще не подключиться.", "hwid.p4": "Импорт возможен один раз, в одно приложение на одном телефоне. После этого нельзя сменить ни приложение, ни телефон.", "hwid.copy": "Скопировать ссылку подписки", "hwid.copied": "Ссылка подписки скопирована", "dlFailed": "Не удалось скачать"}};
   var lang = "fa";
 
   function T(key) {
@@ -708,34 +729,183 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     tt = setTimeout(function () { t.classList.remove("show"); }, 1900);
   }
 
+  function unesc(s) {
+    try { return decodeURIComponent(s); } catch (e) { return null; }
+  }
+
+  function clean(v) {
+    return typeof v === "string" && !/[\u0000-\u001f\u007f#]/.test(v);
+  }
+
   function wgConf(uri) {
+    if (typeof uri !== "string") return null;
+    if (!/^(wireguard|wg):\/\//i.test(uri)) return null;
     var rest = uri.replace(/^(wireguard|wg):\/\//i, "");
     var h = rest.indexOf("#");
     if (h > -1) rest = rest.slice(0, h);
     var at = rest.indexOf("@");
     if (at < 0) return null;
-    var priv = decodeURIComponent(rest.slice(0, at));
+    var priv = unesc(rest.slice(0, at));
     var after = rest.slice(at + 1);
     var q = after.indexOf("?");
-    var endpoint = decodeURIComponent((q < 0 ? after : after.slice(0, q)).replace(/\/+$/, ""));
-    var p = {};
+    var endpoint = unesc((q < 0 ? after : after.slice(0, q)).replace(/\/+$/, ""));
+    var p = Object.create(null);
+    var broken = false;
     if (q > -1) {
       after.slice(q + 1).split("&").forEach(function (kv) {
         var i = kv.indexOf("=");
-        if (i > -1) p[kv.slice(0, i).toLowerCase()] = decodeURIComponent(kv.slice(i + 1));
+        if (i < 0) return;
+        var v = unesc(kv.slice(i + 1));
+        if (v === null || !clean(v)) { broken = true; return; }
+        p[kv.slice(0, i).toLowerCase()] = v;
       });
     }
+    if (broken) return null;
     if (!priv || !p.publickey || !endpoint) return null;
+    if (!clean(priv) || !clean(endpoint)) return null;
     var L = ["[Interface]", "PrivateKey = " + priv];
     if (p.address) L.push("Address = " + p.address);
     if (p.dns) L.push("DNS = " + p.dns);
-    if (p.mtu) L.push("MTU = " + p.mtu);
+    if (p.mtu && /^[0-9]+$/.test(p.mtu)) L.push("MTU = " + p.mtu);
     L.push("", "[Peer]", "PublicKey = " + p.publickey);
     if (p.presharedkey) L.push("PresharedKey = " + p.presharedkey);
     L.push("AllowedIPs = " + (p.allowedips || "0.0.0.0/0,::/0"));
     L.push("Endpoint = " + endpoint, "");
     var host = (endpoint.split(":")[0].split(".")[0] || "wg").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 12);
     return { name: ("wg-" + host).slice(0, 15) + ".conf", body: L.join("\n") };
+  }
+
+  function utf8(s) {
+    if (typeof TextEncoder === "function") return new TextEncoder().encode(s);
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+        var d = s.charCodeAt(i + 1);
+        if (d >= 0xDC00 && d <= 0xDFFF) {
+          c = 0x10000 + ((c - 0xD800) << 10) + (d - 0xDC00);
+          i++;
+        }
+      }
+      if (c >= 0xD800 && c <= 0xDFFF) c = 0xFFFD;
+      if (c < 128) out.push(c);
+      else if (c < 2048) out.push(192 | (c >> 6), 128 | (c & 63));
+      else if (c < 65536) out.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63));
+      else out.push(240 | (c >> 18), 128 | ((c >> 12) & 63), 128 | ((c >> 6) & 63), 128 | (c & 63));
+    }
+    return new Uint8Array(out);
+  }
+
+  var CRC_TABLE = null;
+  function crc32(bytes) {
+    if (!CRC_TABLE) {
+      CRC_TABLE = new Array(256);
+      for (var n = 0; n < 256; n++) {
+        var c = n;
+        for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        CRC_TABLE[n] = c >>> 0;
+      }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xFF];
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function zipOf(files) {
+    if (!files.length || files.length > 65535) throw new Error("zip range");
+    var parts = [];
+    var dir = [];
+    var offset = 0;
+    files.forEach(function (f) {
+      var name = utf8(f.name);
+      var body = utf8(f.body);
+      if (name.length > 65535 || offset + 30 + name.length + body.length > 0xFFFFFFFE) throw new Error("zip range");
+      var sum = crc32(body);
+      var local = new Uint8Array(30 + name.length);
+      var lv = new DataView(local.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 20, true);
+      lv.setUint16(6, 0x0800, true);
+      lv.setUint16(8, 0, true);
+      lv.setUint16(10, 0, true);
+      lv.setUint16(12, 33, true);
+      lv.setUint32(14, sum, true);
+      lv.setUint32(18, body.length, true);
+      lv.setUint32(22, body.length, true);
+      lv.setUint16(26, name.length, true);
+      lv.setUint16(28, 0, true);
+      local.set(name, 30);
+
+      var entry = new Uint8Array(46 + name.length);
+      var ev = new DataView(entry.buffer);
+      ev.setUint32(0, 0x02014b50, true);
+      ev.setUint16(4, 20, true);
+      ev.setUint16(6, 20, true);
+      ev.setUint16(8, 0x0800, true);
+      ev.setUint16(10, 0, true);
+      ev.setUint16(12, 0, true);
+      ev.setUint16(14, 33, true);
+      ev.setUint32(16, sum, true);
+      ev.setUint32(20, body.length, true);
+      ev.setUint32(24, body.length, true);
+      ev.setUint16(28, name.length, true);
+      ev.setUint16(30, 0, true);
+      ev.setUint16(32, 0, true);
+      ev.setUint16(34, 0, true);
+      ev.setUint16(36, 0, true);
+      ev.setUint32(38, 0, true);
+      ev.setUint32(42, offset, true);
+      entry.set(name, 46);
+
+      parts.push(local, body);
+      dir.push(entry);
+      offset += local.length + body.length;
+    });
+    var dirSize = 0;
+    dir.forEach(function (e) { dirSize += e.length; });
+    var end = new Uint8Array(22);
+    var ed = new DataView(end.buffer);
+    ed.setUint32(0, 0x06054b50, true);
+    ed.setUint16(4, 0, true);
+    ed.setUint16(6, 0, true);
+    ed.setUint16(8, files.length, true);
+    ed.setUint16(10, files.length, true);
+    ed.setUint32(12, dirSize, true);
+    ed.setUint32(16, offset, true);
+    ed.setUint16(20, 0, true);
+    return new Blob(parts.concat(dir, [end]), { type: "application/zip" });
+  }
+
+  function saveBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  }
+
+  function wgFiles(list) {
+    var files = [];
+    var used = {};
+    Array.prototype.forEach.call(list.querySelectorAll(".cfg"), function (el) {
+      var conf = null;
+      try { conf = wgConf(el.getAttribute("data-uri") || ""); } catch (e) { conf = null; }
+      if (!conf) return;
+      var base = conf.name.replace(/\.conf$/, "");
+      var name = conf.name;
+      var n = 2;
+      while (used[name]) {
+        var tail = "-" + n;
+        name = base.slice(0, 15 - tail.length) + tail + ".conf";
+        n++;
+      }
+      used[name] = 1;
+      files.push({ name: name, body: conf.body });
+    });
+    return files;
   }
 
   function downloadWg(uri) {
@@ -904,6 +1074,18 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     Array.prototype.slice.call(cfgList.querySelectorAll(".cfg")).forEach(function (el) {
       if (protoOf(el.getAttribute("data-uri") || "") === "MTPROTO") tgList.appendChild(el);
     });
+    var wgList = $("wgList");
+    if (wgList) {
+      Array.prototype.slice.call(cfgList.querySelectorAll(".cfg")).forEach(function (el) {
+        if (protoOf(el.getAttribute("data-uri") || "") === "WIREGUARD") wgList.appendChild(el);
+      });
+      var wgCount = wgList.querySelectorAll(".cfg").length;
+      var wgBtn0 = $("wgBtn");
+      if (wgBtn0) wgBtn0.hidden = wgCount === 0;
+      var wgAll = $("wgDownloadAll");
+      if (wgAll) wgAll.hidden = wgFiles(wgList).length < 2;
+    }
+
     var tgCount = tgList.querySelectorAll(".cfg").length;
     var tgBtn0 = $("tgBtn");
     if (tgBtn0) tgBtn0.hidden = tgCount === 0;
@@ -970,7 +1152,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
   }
 
   function open(m) { m.setAttribute("open", ""); document.body.style.overflow = "hidden"; }
-  function shut(m) { m.removeAttribute("open"); if (!document.querySelector("[open]")) document.body.style.overflow = ""; }
+  function shut(m) { m.removeAttribute("open"); if (!document.querySelector(".modal[open]")) document.body.style.overflow = ""; }
 
   var cfgModal = $("cfgModal");
   var qrModal = $("qrModal");
@@ -979,6 +1161,26 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
   var cfgBtn = $("cfgBtn");
   if (cfgBtn) cfgBtn.addEventListener("click", function () { open(cfgModal); });
   $("cfgClose").addEventListener("click", function () { shut(cfgModal); });
+
+  var wgModal = $("wgModal");
+  var wgBtn = $("wgBtn");
+  if (wgBtn && wgModal) {
+    wgBtn.addEventListener("click", function () { open(wgModal); });
+    $("wgClose").addEventListener("click", function () { shut(wgModal); });
+    wgModal.addEventListener("click", function (e) { if (e.target === wgModal) shut(wgModal); });
+    var wgAllBtn = $("wgDownloadAll");
+    if (wgAllBtn) {
+      wgAllBtn.addEventListener("click", function () {
+        var files = wgFiles($("wgList"));
+        if (!files.length) return;
+        var blob = null;
+        try { blob = zipOf(files); } catch (e) { blob = null; }
+        if (!blob) { toast(T("dlFailed")); return; }
+        try { saveBlob(blob, "wireguard.zip"); } catch (e) { toast(T("dlFailed")); return; }
+        toast(T("downloaded"));
+      });
+    }
+  }
 
   var tgModal = $("tgModal");
   var tgBtn = $("tgBtn");
@@ -1003,7 +1205,9 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     });
   });
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { shut(cfgModal); shut(qrModal); if (l2tpModal) shut(l2tpModal); qrBox.innerHTML = ""; }
+    if (e.key !== "Escape") return;
+    Array.prototype.forEach.call(document.querySelectorAll(".modal[open]"), shut);
+    qrBox.innerHTML = "";
   });
 
   function showQr(uri) {
