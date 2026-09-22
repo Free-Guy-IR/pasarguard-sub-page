@@ -1,6 +1,6 @@
 # PasarGuard Sub Page
 
-A Persian, right-to-left subscription page for the PasarGuard panel. One file, no outside requests.
+A subscription page for the PasarGuard panel that opens in Persian, right to left, and can be switched to English or Russian. One file, no outside requests.
 
 <div align="center">
   <img src="screenshots/preview.png" alt="Preview" width="360" />
@@ -20,11 +20,15 @@ The subscription page is the one page your users **must** be able to open. A pag
 - Used, total and remaining traffic
 - Expiry date and days left, or the plan length for a user who has not started yet
 - Status: active, on hold, expired, out of data, disabled
-- The panel's announcement, when one is set
-- **Apps**, grouped into tabs by platform, with the visitor's own platform selected
-- **Configs** with a protocol badge, copy, copy-all and a QR code
+- A **Support** button that opens the panel's announcement URL, when one is set
+- **Apps**, grouped into tabs by platform, with the visitor's own platform selected, plus download cards for apps that have download links
+- **Configs** with a protocol badge, copy, copy-all and a QR code, under a notice asking the customer to import the subscription link rather than adding configs one by one
 - An **OpenVPN download** button for users who have it
+- An **L2TP** box with the server, username, password and pre-shared key, for users who have L2TP
+- **WireGuard** and **Telegram (MTProto)** in their own sections
+- A **single-device notice** in place of the configs when the panel hides them because the subscription is locked to one device (HWID)
 - WireGuard, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, MTProto, and anything else the panel emits
+- A Persian / English / Russian switch; the page opens in Persian unless the visitor picked another language before
 - Dark and light themes with a toggle that remembers the choice
 
 ## Install
@@ -121,9 +125,12 @@ Editing a template file takes effect on the next page load; no restart. A path t
 | `user.expire` | expiry date |
 | `user.on_hold_expire_duration` | seconds, for a user who has not started |
 | `links` | the config strings |
-| `apps` | each with `name`, `icon_url`, `import_url`, `platform.value`, `description` |
-| `announce` / `announce_url` | the announcement |
-| `has_openvpn` | whether to offer the OpenVPN download |
+| `apps` | each with `name`, `icon_url`, `import_url`, `platform.value`, `description`, `download_links` |
+| `announce` / `announce_url` | the announcement text and its URL; this page uses only `announce_url`, for the Support button |
+| `has_openvpn` | whether the user has any OpenVPN config |
+| `openvpn_configs` | the OpenVPN files, each with `filename`, `protocol`, `content`, `remotes` |
+| `l2tp_details` | the L2TP servers, each with `server`, `username`, `password`, `secret`, `remark` |
+| `configs_hidden_by_hwid` | true when the configs are withheld because the subscription is locked to one device |
 
 Filters: `bytesformat`, `datetime`, `yaml`, `only`, `except`. The `now()` global is available too.
 
@@ -131,7 +138,7 @@ Filters: `bytesformat`, `datetime`, `yaml`, `only`, `except`. The `now()` global
 
 ## Compatibility
 
-Tested against PasarGuard v5. It works with forks that have not changed the subscription template contract.
+Tested against PasarGuard v5. It works with forks that have not changed the subscription template contract. The OpenVPN, L2TP and single-device parts need a panel that passes `openvpn_configs`, `l2tp_details` and `configs_hidden_by_hwid`, as the Free-Guy-IR panel does; on a panel that does not, those parts stay hidden and the rest of the page works as usual.
 
 ## License
 
