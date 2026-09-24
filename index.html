@@ -739,6 +739,10 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     return typeof v === "string" && !/[\u0000-\u001f\u007f#]/.test(v);
   }
 
+  function printable(v) {
+    return v === undefined || (typeof v === "string" && /^[\u0020-\u007e]*$/.test(v) && v.indexOf("#") < 0);
+  }
+
   function intBetween(v, lo, hi) {
     if (typeof v !== "string" || !/^[0-9]{1,5}$/.test(v)) return 0;
     var n = parseInt(v, 10);
@@ -771,7 +775,7 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     }
     if (broken) return null;
     if (!priv || !p.publickey || !endpoint) return null;
-    if (!clean(priv) || !clean(endpoint)) return null;
+    if (![priv, endpoint, p.publickey, p.presharedkey, p.address, p.dns, p.allowedips].every(printable)) return null;
     var L = ["[Interface]", "PrivateKey = " + priv];
     if (p.address) L.push("Address = " + p.address);
     if (p.dns) L.push("DNS = " + p.dns);

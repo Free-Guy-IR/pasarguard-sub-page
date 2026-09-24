@@ -162,6 +162,43 @@ WG_DIRECTIVES_WITH_MTU = [
 
 WG_DIRECTIVES_WITHOUT_MTU = [key for key in WG_DIRECTIVES_WITH_MTU if key != "MTU"]
 
+def wg_fields(host, tag, private="cHJpdg%3D%3D", publickey="cHVia2V5",
+              address="10.0.0.2%2F32", extra="&dns=192.0.2.53&allowedips=0.0.0.0%2F0"):
+    return "wireguard://%s@%s/?publickey=%s&address=%s%s#%s" % (
+        private, host, publickey, address, extra, tag)
+
+
+WG_NON_ASCII_REFUSED = [
+    ("dns + U+2028", wg_fields("na0.example.com:51820", "na0",
+                                extra="&dns=192.0.2.53%E2%80%A8PostUp%20%3D%20x")),
+    ("dns + U+2029", wg_fields("na1.example.com:51820", "na1",
+                                extra="&dns=192.0.2.53%E2%80%A9PostUp%20%3D%20x")),
+    ("dns + NEL", wg_fields("na2.example.com:51820", "na2",
+                             extra="&dns=192.0.2.53%C2%85PostUp%20%3D%20x")),
+    ("dns + NBSP", wg_fields("na3.example.com:51820", "na3", extra="&dns=192.0.2.53%C2%A0")),
+    ("dns in Persian digits", wg_fields("na4.example.com:51820", "na4",
+                                         extra="&dns=%DB%B1.%DB%B1.%DB%B1.%DB%B1")),
+    ("address + U+2028", wg_fields("na5.example.com:51820", "na5",
+                                    address="10.0.0.2%2F32%E2%80%A8PostUp%20%3D%20x")),
+    ("allowedips + NEL", wg_fields("na6.example.com:51820", "na6",
+                                    extra="&allowedips=0.0.0.0%2F0%C2%85PostUp%20%3D%20x")),
+    ("publickey + U+2029", wg_fields("na7.example.com:51820", "na7", publickey="cHVia2V5%E2%80%A9x")),
+    ("presharedkey + NEL", wg_fields("na8.example.com:51820", "na8",
+                                      extra="&presharedkey=cHNr%C2%85x")),
+    ("private key + U+2028", wg_fields("na9.example.com:51820", "na9", private="cHJpdg%E2%80%A8x")),
+    ("endpoint + U+2028", wg_fields("na10%E2%80%A8.example.com:51820", "na10")),
+    ("dns + DEL", wg_fields("na11.example.com:51820", "na11", extra="&dns=192.0.2.53%7F")),
+]
+
+WG_NON_ASCII_KEPT = [
+    wg_fields("ok-a.example.com:51820", "ok-a"),
+    wg_fields("ok-b.example.com:51820", "ok-b",
+              extra="&dns=192.0.2.53%2C%20192.0.2.54&allowedips=0.0.0.0%2F0%2C%20%3A%3A%2F0"
+                    "&presharedkey=cHNr"),
+]
+
+WG_NON_ASCII = [uri for _, uri in WG_NON_ASCII_REFUSED] + WG_NON_ASCII_KEPT
+
 PWNED_LINK = "\x01javascript:window.PWNED=1//https://sub.example/sub/TOKEN"
 
 HOSTILE_APP_LINKS = [PWNED_LINK] + [
@@ -791,6 +828,35 @@ def fixture_mtu(page, results, name, out_dir):
     return after
 
 
+def fixture_non_ascii(page, results, name, out_dir):
+    state = page.wait_ready()
+    check(results, name, state["wgCards"] == len(WG_NON_ASCII),
+          "every link belongs in the sheet, got %s" % state["wgCards"])
+    page.click("#wgBtn")
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
+    for index, (label, _) in enumerate(WG_NON_ASCII_REFUSED):
+        page.evaluate("document.querySelectorAll('#wgList .cfg')[%d].querySelector('.mini').click();"
+                      % index)
+        time.sleep(0.3)
+        after = page.snapshot()
+        check(results, name, after["blobs"] == 0 and after["downloads"] == [],
+              "%s must be refused, but produced %s file(s) %s"
+              % (label, after["blobs"], after["downloads"]))
+    page.click("#wgDownloadAll")
+    time.sleep(1.5)
+    after = check_zip(page, results, name, len(WG_NON_ASCII_KEPT), out_dir)
+    entries = zip_entries(page, results, name, out_dir)
+    check(results, name, sorted(entries) == ["wg-ok-a.conf", "wg-ok-b.conf"],
+          "zip entries %s, expected only the two plain ASCII links" % sorted(entries))
+    for entry, body in sorted(entries.items()):
+        odd = sorted({ch for ch in body if ch != "\n" and not " " <= ch <= "~"})
+        check(results, name, not odd, "%s carries characters outside printable ASCII: %r" % (entry, odd))
+        check(results, name, "PostUp" not in body, "%s carries a PostUp directive" % entry)
+    return after
+
+
 def fixture_app_links(page, results, name, out_dir):
     page.wait_ready()
     cards = json.loads(page.evaluate(
@@ -909,6 +975,7 @@ FIXTURES = [
     ("wireguard keepalive", WG_KEEPALIVE, [], [], "active", fixture_keepalive),
     ("hostile keepalive", WG_KEEPALIVE_HOSTILE, [], [], "active", fixture_keepalive_hostile),
     ("wireguard mtu", WG_MTU, [], [], "active", fixture_mtu),
+    ("non-ascii wireguard", WG_NON_ASCII, [], [], "active", fixture_non_ascii),
     ("hostile app links", VLESS, [], [], "active", fixture_app_links, APP_LINK_APPS),
     ("wireguard only", WG_OK, [], [], "active", fixture_wg_only),
     ("openvpn only", VLESS, OVPN, [], "active", fixture_ovpn_only),
