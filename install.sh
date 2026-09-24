@@ -2,8 +2,8 @@
 set -euo pipefail
 
 REPO="Free-Guy-IR/pasarguard-sub-page"
-REF="${REF:-v1.1.0}"
-EXPECT_SHA256="6bb1b8286dde14b010db1095a6afd2e736470573ee2d8d3573306d6b5c98d980"
+REF="${REF:-c1e6c50ea2cae45bc3c90663f9521f4fc0aea7ea}"
+EXPECT_SHA256="aa6e8088c946f55f66015952df3892c88669a78621cd70ee18506633fc9e4b31"
 
 PANEL_DIR="${PANEL_DIR:-/opt/pasarguard}"
 TPL_DIR="${TPL_DIR:-/var/lib/pasarguard/templates}"

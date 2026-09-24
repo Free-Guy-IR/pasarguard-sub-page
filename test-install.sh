@@ -8,13 +8,15 @@ pass=0; fail=0
 c_grn=$'\033[32m'; c_red=$'\033[31m'; c_off=$'\033[0m'
 
 expect_fail() {
-  local what="$1"; shift
+  local what="$1" reason="$2"; shift 2
   local out rc
   out="$(bash "$SCRIPT" "$@" 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ]; then
-    printf '%s ok  %s%s\n' "$c_grn" "$what" "$c_off"; pass=$((pass+1))
-  else
+  if [ "$rc" -eq 0 ]; then
     printf '%s FAIL%s %s — exited 0, should have refused\n' "$c_red" "$c_off" "$what"; fail=$((fail+1))
+  elif ! printf '%s' "$out" | grep -qE "$reason"; then
+    printf '%s FAIL%s %s — refused, but not with /%s/: %s\n' "$c_red" "$c_off" "$what" "$reason" "$(printf '%s' "$out" | head -1)"; fail=$((fail+1))
+  else
+    printf '%s ok  %s%s\n' "$c_grn" "$what" "$c_off"; pass=$((pass+1))
   fi
 }
 
@@ -39,16 +41,16 @@ expect_ok() {
 }
 
 echo "argument handling"
-expect_fail "--admin with no value"        --admin
-expect_fail "--admin with an empty value"  --admin ""
-expect_fail "--dir with no value"          --dir
-expect_fail "--ref with no value"          --ref
-expect_fail "--sha256 with no value"       --sha256
-expect_fail "--ref without --sha256"       --ref main
-expect_fail "an unknown option"            --nope
-expect_fail "an admin name with a slash"   --admin ../etc
-expect_fail "an admin name of .."          --admin ..
-expect_fail "an admin name of ."           --admin .
+expect_fail "--admin with no value"        'needs a value'           --admin
+expect_fail "--admin with an empty value"  'needs a non-empty value' --admin ""
+expect_fail "--dir with no value"          'needs a value'           --dir
+expect_fail "--ref with no value"          'needs a value'           --ref
+expect_fail "--sha256 with no value"       'needs a value'           --sha256
+expect_fail "--ref without --sha256"       'also needs --sha256'     --ref main
+expect_fail "an unknown option"            'unknown option'          --nope
+expect_fail "an admin name with a slash"   'may only contain'        --admin ../etc
+expect_fail "an admin name of .."          'may not be \. or \.\.'   --admin ..
+expect_fail "an admin name of ."           'may not be \. or \.\.'   --admin .
 expect_ok   "--help"                       --help
 
 echo
@@ -58,9 +60,9 @@ expect_parses "--sha256 then --ref"        --sha256 0000000000000000000000000000
 
 echo
 echo "the hash has to look like a hash"
-expect_fail "a short hash"                 --ref main --sha256 abc123
-expect_fail "a hash with non-hex in it"    --ref main --sha256 zzzz000000000000000000000000000000000000000000000000000000000000
-expect_fail "an uppercase hash"            --ref main --sha256 0000000000000000000000000000000000000000000000000000000000000000
+expect_fail "a short hash"                 'must be 64 lowercase' --ref main --sha256 abc123
+expect_fail "a hash with non-hex in it"    'must be 64 lowercase' --ref main --sha256 zzzz000000000000000000000000000000000000000000000000000000000000
+expect_fail "an uppercase hash"            'must be 64 lowercase' --ref main --sha256 ABCDEF0000000000000000000000000000000000000000000000000000000000
 
 echo
 echo "the installer applies the env change in a way docker actually picks up"
@@ -98,6 +100,35 @@ if [ -f "$(dirname "$SCRIPT")/index.html" ]; then
   fi
 else
   echo " skip  no index.html beside the installer"
+fi
+
+echo
+echo "the default ref is immutable, published with this installer, and serves the pinned page"
+dir="$(dirname "$SCRIPT")"
+ref="$(sed -nE 's/^REF="\$\{REF:-([^}]+)\}"$/\1/p' "$SCRIPT" | head -n1)"
+pinned="$(grep -oE '^EXPECT_SHA256="[a-f0-9]+"' "$SCRIPT" | head -n1 | cut -d'"' -f2)"
+if ! git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ -n "${CI:-}" ]; then
+    printf '%s FAIL%s not a git checkout, so the default ref cannot be checked\n' "$c_red" "$c_off"; fail=$((fail+1))
+  else
+    echo " skip  not a git checkout, the default ref cannot be resolved here"
+  fi
+elif [ -z "$ref" ]; then
+  printf '%s FAIL%s no REF="${REF:-...}" default in the installer\n' "$c_red" "$c_off"; fail=$((fail+1))
+elif ! printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$' \
+     && ! git -C "$dir" show-ref --verify --quiet "refs/tags/$ref"; then
+  printf '%s FAIL%s REF=%s is neither a full commit hash nor a tag here, and anything else can move under the pin\n' "$c_red" "$c_off" "$ref"; fail=$((fail+1))
+elif ! commit="$(git -C "$dir" rev-parse --verify --quiet "$ref^{commit}")"; then
+  printf '%s FAIL%s REF=%s does not exist in this repository\n' "$c_red" "$c_off" "$ref"; fail=$((fail+1))
+elif ! git -C "$dir" merge-base --is-ancestor "$commit" HEAD; then
+  printf '%s FAIL%s REF=%s is not in the history of this commit, so publishing the installer does not publish it\n' "$c_red" "$c_off" "$ref"; fail=$((fail+1))
+else
+  served="$(git -C "$dir" show "$commit:index.html" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"
+  if [ -n "$pinned" ] && [ "$served" = "$pinned" ]; then
+    printf '%s ok  %s serves the pinned %s…%s\n' "$c_grn" "${ref:0:12}" "${pinned:0:16}" "$c_off"; pass=$((pass+1))
+  else
+    printf '%s FAIL%s REF=%s serves index.html %s but the installer expects %s\n' "$c_red" "$c_off" "$ref" "$served" "${pinned:-none}"; fail=$((fail+1))
+  fi
 fi
 
 echo
