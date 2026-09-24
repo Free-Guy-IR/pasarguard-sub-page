@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 022
 
 REPO="Free-Guy-IR/pasarguard-sub-page"
 REF="${REF:-0bf5956eb37736b52c9fc3a42eb29a06adb0e44b}"
@@ -106,13 +107,47 @@ newest_backup() {
   ls -1 "$TPL_DIR/$SUBDIR"/index.html.bak-* 2>/dev/null | sort | tail -1
 }
 
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+
+STAGE=""
+cleanup() { [ -z "${TMP:-}" ] || rm -f "$TMP"; [ -z "$STAGE" ] || rm -f "$STAGE"; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+refuse_linked_dirs() {
+  local d
+  for d in "$TPL_DIR" "$TPL_DIR/$SUBDIR"; do
+    [ ! -L "$d" ] || die "$d is a symbolic link; refusing to write through it"
+  done
+}
+
+new_stage() {
+  STAGE="$(mktemp -u "$TPL_DIR/$SUBDIR/.index.html.XXXXXXXXXXXX")"
+  [ ! -e "$STAGE" ] && [ ! -L "$STAGE" ] || die "could not pick a new temporary name in $TPL_DIR/$SUBDIR"
+}
+
+replace_target() {
+  local help
+  help="$(mv --help 2>&1 || true)"
+  case "$help" in
+    *--no-target-directory*) mv -fT "$STAGE" "$TARGET" ;;
+    *) [ ! -d "$TARGET" ] || die "$TARGET is a directory"; mv -f "$STAGE" "$TARGET" ;;
+  esac
+  STAGE=""
+}
+
 if [ "$ROLLBACK" = 1 ]; then
   B="$(newest_backup)" || true
   [ -n "${B:-}" ] || die "no backup found in $TPL_DIR/$SUBDIR"
   EB="$(ls -1 "$PANEL_DIR"/.env.bak-* 2>/dev/null | sort | tail -1 || true)"
+  [ ! -L "$B" ] || die "refusing to restore $B: it is a symbolic link"
+  [ -f "$B" ] || die "refusing to restore $B: it is not a regular file"
   say "restoring $B"
   if [ "$DRY" = 1 ]; then plan "copy $B over $TARGET"; exit 0; fi
-  cp -p "$B" "$TARGET"
+  refuse_linked_dirs
+  new_stage
+  ln -P "$B" "$STAGE" || die "could not stage $B"
+  replace_target
   ok "restored $TARGET"
   if [ -n "${EB:-}" ]; then cp -p "$EB" "$ENV_FILE"; ok "restored $ENV_FILE from $EB"; fi
   restart_panel
@@ -121,7 +156,6 @@ fi
 
 say "fetching the page (${REF})…"
 TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
 curl -fsSL --proto '=https' --tlsv1.2 -o "$TMP" \
   "https://raw.githubusercontent.com/$REPO/$REF/index.html" \
   || die "download failed — check this server's connectivity to github.com"
@@ -154,16 +188,19 @@ if [ "$DRY" = 1 ]; then
   exit 0
 fi
 
+refuse_linked_dirs
 mkdir -p "$TPL_DIR/$SUBDIR"
+refuse_linked_dirs
+new_stage
+( set -o noclobber; cat "$TMP" > "$STAGE" ) || die "could not create a new file in $TPL_DIR/$SUBDIR"
 BACKUP=""
-if [ -f "$TARGET" ]; then
+if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
   BACKUP="$TARGET.bak-$(date +%Y%m%d-%H%M%S)"
-  cp -p "$TARGET" "$BACKUP"
+  ln -P "$TARGET" "$BACKUP" 2>/dev/null \
+    || die "could not keep the previous page as $BACKUP: something of that name is already there. Nothing was changed."
   ok "kept the previous page at $BACKUP"
 fi
-mv "$TMP" "$TARGET"
-trap - EXIT
-chmod 644 "$TARGET"
+replace_target
 ok "installed $TARGET"
 
 set_env() {
@@ -177,11 +214,11 @@ set_env() {
     { print }
     END { if (!done) print key "=\"" val "\"" }
   ' "$ENV_FILE" > "$tmp"
-  chmod --reference="$ENV_FILE" "$tmp" 2>/dev/null || chmod "$(stat -c '%a' "$ENV_FILE")" "$tmp"
+  chmod "$(mode_of "$ENV_FILE")" "$tmp"
   mv -f "$tmp" "$ENV_FILE"
 }
 
-BEFORE_MODE="$(stat -c '%a' "$ENV_FILE")"
+BEFORE_MODE="$(mode_of "$ENV_FILE")"
 cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date +%Y%m%d-%H%M%S)"
 set_env CUSTOM_TEMPLATES_DIRECTORY "$TPL_DIR/"
 [ -n "$ADMIN" ] || set_env SUBSCRIPTION_PAGE_TEMPLATE "subscription/index.html"
