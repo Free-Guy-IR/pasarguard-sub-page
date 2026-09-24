@@ -75,11 +75,11 @@ WG_INJECT = [
     ),
 ]
 
-def panel_wg(host, keepalive, tag):
+def panel_wg(host, keepalive, tag, mtu="1420"):
     return (
-        "wireguard://cHJpdg%%3D%%3D@%s/?publickey=cHVia2V5&address=10.0.0.2%%2F32&mtu=1420"
+        "wireguard://cHJpdg%%3D%%3D@%s/?publickey=cHVia2V5&address=10.0.0.2%%2F32&mtu=%s"
         "&allowedips=0.0.0.0%%2F0%%2C%%3A%%3A%%2F0&keepalive=%s&reserved=1%%2C2%%2C3"
-        "&dns=192.0.2.53#%s" % (host, keepalive, tag)
+        "&dns=192.0.2.53#%s" % (host, mtu, keepalive, tag)
     )
 
 
@@ -126,6 +126,41 @@ WG_KEEPALIVE_HOSTILE = [
 WG_DIRECTIVES_WITHOUT_KEEPALIVE = [
     "PrivateKey", "Address", "DNS", "MTU", "PublicKey", "AllowedIPs", "Endpoint",
 ]
+
+MTU_CASES = [
+    ("576", "576"),
+    ("1420", "1420"),
+    ("9000", "9000"),
+    ("01280", "1280"),
+    ("575", None),
+    ("9001", None),
+    ("0", None),
+    ("65535", None),
+    ("99999", None),
+    ("123456789012", None),
+    ("-1420", None),
+    ("%2B1420", None),
+    ("1e3", None),
+    ("0x5a0", None),
+    ("1420.5", None),
+    ("%201420", None),
+    ("1420%20", None),
+    ("1420%20PostUp%20%3D%20rm%20-rf%20%2F", None),
+    ("%D9%A1%D9%A4%D9%A2%D9%A0", None),
+    ("", None),
+]
+
+WG_MTU = [
+    panel_wg("mt%d.example.com:51820" % i, "25", "mtu-%d" % i, mtu=value)
+    for i, (value, _) in enumerate(MTU_CASES)
+]
+
+WG_DIRECTIVES_WITH_MTU = [
+    "PrivateKey", "Address", "DNS", "MTU", "PublicKey", "AllowedIPs", "Endpoint",
+    "PersistentKeepalive",
+]
+
+WG_DIRECTIVES_WITHOUT_MTU = [key for key in WG_DIRECTIVES_WITH_MTU if key != "MTU"]
 
 OVPN = [
     {"protocol": "udp", "filename": "node-udp.ovpn", "content": "client\ndev tun\nproto udp\n"},
@@ -685,6 +720,43 @@ def fixture_keepalive_hostile(page, results, name, out_dir):
     return after
 
 
+def fixture_mtu(page, results, name, out_dir):
+    state = page.wait_ready()
+    check(results, name, state["wgCards"] == len(WG_MTU),
+          "expected %d WireGuard cards, got %s" % (len(WG_MTU), state["wgCards"]))
+    page.click("#wgBtn")
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
+    page.click("#wgDownloadAll")
+    time.sleep(1.5)
+    after = check_zip(page, results, name, len(MTU_CASES), out_dir)
+    entries = zip_entries(page, results, name, out_dir)
+    expected_names = sorted("wg-mt%d.conf" % i for i in range(len(MTU_CASES)))
+    check(results, name, sorted(entries) == expected_names,
+          "zip entries %s, expected %s" % (sorted(entries), expected_names))
+    for index, (value, expected) in enumerate(MTU_CASES):
+        entry = "wg-mt%d.conf" % index
+        body = entries.get(entry, "")
+        directives = conf_directives(body)
+        keys = [key for _, key, _ in directives]
+        mtus = [(section, found) for section, key, found in directives if key == "MTU"]
+        if expected is None:
+            check(results, name, keys == WG_DIRECTIVES_WITHOUT_MTU,
+                  "mtu=%r is outside 576-9000 or not a plain integer, but %s has the directives %s"
+                  % (value, entry, keys))
+        else:
+            check(results, name, mtus == [("[Interface]", expected)],
+                  "mtu=%r should give one 'MTU = %s' in [Interface], %s has %s"
+                  % (value, expected, entry, mtus))
+            check(results, name, keys == WG_DIRECTIVES_WITH_MTU,
+                  "mtu=%r gave %s the directives %s, expected %s"
+                  % (value, entry, keys, WG_DIRECTIVES_WITH_MTU))
+        check(results, name, "PostUp" not in body,
+              "mtu=%r smuggled a PostUp directive into %s" % (value, entry))
+    return after
+
+
 def fixture_wg_only(page, results, name, out_dir):
     state = page.wait_ready()
     check(results, name, state["wgCards"] == 3,
@@ -778,6 +850,7 @@ FIXTURES = [
      fixture_unconvertible_card),
     ("wireguard keepalive", WG_KEEPALIVE, [], [], "active", fixture_keepalive),
     ("hostile keepalive", WG_KEEPALIVE_HOSTILE, [], [], "active", fixture_keepalive_hostile),
+    ("wireguard mtu", WG_MTU, [], [], "active", fixture_mtu),
     ("wireguard only", WG_OK, [], [], "active", fixture_wg_only),
     ("openvpn only", VLESS, OVPN, [], "active", fixture_ovpn_only),
     ("l2tp only", VLESS, [], L2TP, "active", fixture_l2tp_only),
