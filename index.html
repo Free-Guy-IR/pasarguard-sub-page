@@ -260,8 +260,8 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
 {%- endmacro -%}
 {%- macro appurl(u) -%}
 {%- set s = (u or '') | string | trim -%}
-{%- set sch = s.split(':')[0].lower().replace(' ','').replace('\t','').replace('\n','').replace('\r','') -%}
-{%- if sch not in ('javascript','data','vbscript','file','blob','about') -%}{{ s | e }}{%- endif -%}
+{%- set sch = s.split(':', 1)[0] -%}
+{%- if ':' in s and sch[:1].isalpha() and not sch.strip('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-') and sch.lower() not in ('javascript','data','vbscript','file','blob','about','filesystem','view-source','jar') -%}{{ s | e }}{%- endif -%}
 {%- endmacro -%}
 {% set st = user.status.value if user.status is not string else user.status %}
 {% set used = user.used_traffic or 0 %}

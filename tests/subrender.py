@@ -34,13 +34,14 @@ def build_environment(template_dir):
     return env
 
 
-def render(links, ovpn, l2tp, status, template=TEMPLATE, announce_url="", app_url=None):
+def render(links, ovpn, l2tp, status, template=TEMPLATE, announce_url="", app_url=None, apps=None):
     template = Path(template).resolve()
     env = build_environment(template.parent)
-    apps = []
-    if app_url is not None:
-        apps = [{"name": "Happ", "icon_url": app_url, "import_url": app_url,
-                 "download_links": [{"platform": "android", "url": app_url}]}]
+    if apps is None:
+        apps = []
+        if app_url is not None:
+            apps = [{"name": "Happ", "icon_url": app_url, "import_url": app_url,
+                     "download_links": [{"platform": "android", "url": app_url}]}]
     return env.get_template(template.name).render(
         user=User(status),
         links=links,

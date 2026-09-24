@@ -29,6 +29,44 @@ DANGEROUS_URLS = [
     "vbscript:msgbox(5)",
 ]
 
+CONTROL_PREFIXED = [chr(code) + "javascript:alert(%d)" % code for code in range(0x21)]
+
+SMUGGLED_SCHEMES = [
+    "\x01javascript:alert(document.domain)//https://sub.example/sub/TOKEN",
+    "\x01JaVaScRiPt:alert(1)",
+    "\x01\x02\x03javascript:alert(2)",
+    "\x1b javascript:alert(3)",
+    " \x01javascript:alert(4)",
+    "\x7fjavascript:alert(5)",
+    "\x01vbscript:msgbox(6)",
+    "\x08data:text/html,<script>alert(7)</script>",
+    "java\tscript:alert(8)",
+    "java\nscript:alert(9)",
+    "java\rscript:alert(10)",
+    "\tjava\nscript\r:alert(11)",
+    "\u00a0javascript:alert(12)",
+    "\u2028javascript:alert(13)",
+    "\u3000javascript:alert(14)",
+    "\ufeffjavascript:alert(15)",
+    "javascript&#58;alert(16)",
+    "&#106;avascript:alert(17)",
+    "\x0ejavascript:alert(18)//{url}",
+]
+
+LEGIT_APP_URLS = [
+    "happ://add/https://sub.example/sub/TOKEN",
+    "v2rayng://install-config?url=https://sub.example/sub/TOKEN",
+    "sing-box://import-remote-profile?url=https://sub.example/sub/TOKEN",
+    "streisand://import/https://sub.example/sub/TOKEN",
+    "hiddify://import/https://sub.example/sub/TOKEN#name",
+    "clash://install-config?url=https://sub.example/sub/TOKEN&name=a+b",
+    "https://sub.example/sub/TOKEN",
+]
+
+C0_OR_SPACE = "".join(chr(code) for code in range(0x21))
+
+EXECUTABLE_SCHEMES = ("javascript", "vbscript", "data")
+
 
 def jinja_escape(value):
     return (value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -170,17 +208,51 @@ def hostile_checks(payload, baseline_page):
     return problems
 
 
-def url_checks(url):
-    page = subrender.render(
+class UrlAttributes(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.values = []
+
+    def handle_starttag(self, tag, attrs):
+        for name, value in attrs:
+            if name in ("href", "src"):
+                self.values.append((tag, name, dict(attrs).get("class", ""), value or ""))
+
+
+def url_attributes(page):
+    parser = UrlAttributes()
+    parser.feed(page)
+    return parser.values
+
+
+def browser_scheme(value):
+    value = value.replace("\x00", "\ufffd").strip(C0_OR_SPACE)
+    value = re.sub(r"[\t\n\r]", "", value)
+    match = re.match(r"([A-Za-z][A-Za-z0-9+.\-]*):", value)
+    return match.group(1).lower() if match else None
+
+
+def render_urls(url):
+    return subrender.render(
         ["vless://11111111-2222-3333-4444-555555555555@192.0.2.5:443?type=tcp#node"],
         [], [], "active", announce_url=url, app_url=url)
+
+
+def url_checks(url):
     problems = []
-    for attr in ("href", "src"):
-        for match in re.finditer(r'%s\s*=\s*"([^"]*)"' % attr, page):
-            value = match.group(1).strip().lower().replace(" ", "")
-            if value.startswith(("javascript:", "data:text/html", "vbscript:")):
-                problems.append("%s=%r reached the page" % (attr, match.group(1)[:50]))
+    for tag, attr, _, value in url_attributes(render_urls(url)):
+        if browser_scheme(value) in EXECUTABLE_SCHEMES:
+            problems.append("<%s %s=%r> runs as %s: in a browser"
+                            % (tag, attr, value[:50], browser_scheme(value)))
     return problems
+
+
+def legit_checks(url):
+    hrefs = [value for tag, attr, css, value in url_attributes(render_urls(url))
+             if tag == "a" and attr == "href" and "appcard" in css.split()]
+    if hrefs != [url]:
+        return ["the app button should link to %r, it links to %r" % (url, hrefs)]
+    return []
 
 
 def main():
@@ -207,9 +279,17 @@ def main():
             print("      %s" % item)
             failures.append("%r: %s" % (payload, item))
 
-    for url in DANGEROUS_URLS:
+    hostile_urls = DANGEROUS_URLS + CONTROL_PREFIXED + SMUGGLED_SCHEMES
+    for url in hostile_urls:
         problems = url_checks(url)
         print("  %-44s %s" % (repr(url)[:44], "blocked" if not problems else "REACHED THE PAGE"))
+        for item in problems:
+            print("      %s" % item)
+            failures.append("%r: %s" % (url, item))
+
+    for url in LEGIT_APP_URLS:
+        problems = legit_checks(url)
+        print("  %-44s %s" % (repr(url)[:44], "kept" if not problems else "BROKEN"))
         for item in problems:
             print("      %s" % item)
             failures.append("%r: %s" % (url, item))
@@ -218,8 +298,8 @@ def main():
     if failures:
         print("  FAIL: %d problems" % len(failures))
         return 1
-    print("  PASS: %d interpolations all escaped, %d hostile strings inert, %d dangerous urls blocked"
-          % (total, len(HOSTILE), len(DANGEROUS_URLS)))
+    print("  PASS: %d interpolations all escaped, %d hostile strings inert, %d dangerous urls blocked,"
+          " %d app links kept" % (total, len(HOSTILE), len(hostile_urls), len(LEGIT_APP_URLS)))
     return 0
 
 

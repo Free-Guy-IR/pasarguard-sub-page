@@ -162,6 +162,40 @@ WG_DIRECTIVES_WITH_MTU = [
 
 WG_DIRECTIVES_WITHOUT_MTU = [key for key in WG_DIRECTIVES_WITH_MTU if key != "MTU"]
 
+PWNED_LINK = "\x01javascript:window.PWNED=1//https://sub.example/sub/TOKEN"
+
+HOSTILE_APP_LINKS = [PWNED_LINK] + [
+    chr(code) + "javascript:window.PWNED=%d//x" % (code + 2) for code in range(0x21)
+] + [
+    "\x01vbscript:msgbox(1)",
+    "\x08data:text/html,<script>window.PWNED=99</script>",
+    "java\tscript:window.PWNED=100",
+    "\tjava\nscript\r:window.PWNED=101",
+    "\x1b JaVaScRiPt:window.PWNED=102",
+]
+
+SAFE_APP_LINKS = [
+    ("happ://add/https://sub.example/sub/TOKEN", "happ:"),
+    ("v2rayng://install-config?url=https://sub.example/sub/TOKEN", "v2rayng:"),
+    ("sing-box://import-remote-profile?url=https://sub.example/sub/TOKEN", "sing-box:"),
+    ("streisand://import/https://sub.example/sub/TOKEN", "streisand:"),
+]
+
+APP_LINK_APPS = [
+    {"name": "hostile-%d" % i, "icon_url": "", "import_url": url, "download_links": []}
+    for i, url in enumerate(HOSTILE_APP_LINKS)
+] + [
+    {"name": "safe-%d" % i, "icon_url": "", "import_url": url, "download_links": []}
+    for i, (url, _) in enumerate(SAFE_APP_LINKS)
+]
+
+APP_LINK_GUARD = """
+document.addEventListener("click", function (e) {
+  var a = e.target.closest && e.target.closest("a");
+  if (a && a.protocol !== "javascript:") e.preventDefault();
+}, true);
+"""
+
 OVPN = [
     {"protocol": "udp", "filename": "node-udp.ovpn", "content": "client\ndev tun\nproto udp\n"},
     {"protocol": "tcp", "filename": "node-tcp.ovpn", "content": "client\ndev tun\nproto tcp\n"},
@@ -757,6 +791,30 @@ def fixture_mtu(page, results, name, out_dir):
     return after
 
 
+def fixture_app_links(page, results, name, out_dir):
+    page.wait_ready()
+    cards = json.loads(page.evaluate(
+        "JSON.stringify(Array.prototype.map.call(document.querySelectorAll('a.appcard'),"
+        " function (a) { return [a.getAttribute('href'), a.protocol]; }))"
+    ))
+    check(results, name, len(cards) == len(APP_LINK_APPS),
+          "expected %d app buttons, got %d" % (len(APP_LINK_APPS), len(cards)))
+    for (href, protocol), url in zip(cards, HOSTILE_APP_LINKS):
+        check(results, name, protocol not in ("javascript:", "vbscript:", "data:"),
+              "import_url %r became an app button that Chrome runs as %s" % (url, protocol))
+    for (href, protocol), (url, scheme) in zip(cards[len(HOSTILE_APP_LINKS):], SAFE_APP_LINKS):
+        check(results, name, href == url and protocol == scheme,
+              "import_url %r should stay a %s link, Chrome sees href=%r as %s"
+              % (url, scheme, href, protocol))
+    page.evaluate(APP_LINK_GUARD)
+    page.click("a.appcard")
+    time.sleep(0.5)
+    pwned = page.evaluate("typeof window.PWNED === 'undefined' ? null : window.PWNED")
+    check(results, name, pwned is None,
+          "clicking the app button for %r ran its script, window.PWNED=%r" % (PWNED_LINK, pwned))
+    return page.snapshot()
+
+
 def fixture_wg_only(page, results, name, out_dir):
     state = page.wait_ready()
     check(results, name, state["wgCards"] == 3,
@@ -851,6 +909,7 @@ FIXTURES = [
     ("wireguard keepalive", WG_KEEPALIVE, [], [], "active", fixture_keepalive),
     ("hostile keepalive", WG_KEEPALIVE_HOSTILE, [], [], "active", fixture_keepalive_hostile),
     ("wireguard mtu", WG_MTU, [], [], "active", fixture_mtu),
+    ("hostile app links", VLESS, [], [], "active", fixture_app_links, APP_LINK_APPS),
     ("wireguard only", WG_OK, [], [], "active", fixture_wg_only),
     ("openvpn only", VLESS, OVPN, [], "active", fixture_ovpn_only),
     ("l2tp only", VLESS, [], L2TP, "active", fixture_l2tp_only),
@@ -938,10 +997,12 @@ def main():
     server = start_server(out_dir)
     base_url = "http://127.0.0.1:%d/" % server.server_address[1]
     try:
-        for name, links, ovpn, l2tp, status, runner in FIXTURES:
+        for entry in FIXTURES:
+            name, links, ovpn, l2tp, status, runner = entry[:6]
+            apps = entry[6] if len(entry) > 6 else None
             filename = name.replace(" ", "-") + ".html"
             (out_dir / filename).write_text(
-                subrender.render(links, ovpn, l2tp, status), encoding="utf-8"
+                subrender.render(links, ovpn, l2tp, status, apps=apps), encoding="utf-8"
             )
             before = len(results)
             try:
