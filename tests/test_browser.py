@@ -863,12 +863,13 @@ def fixture_app_links(page, results, name, out_dir):
         "JSON.stringify(Array.prototype.map.call(document.querySelectorAll('a.appcard'),"
         " function (a) { return [a.getAttribute('href'), a.protocol]; }))"
     ))
-    check(results, name, len(cards) == len(APP_LINK_APPS),
-          "expected %d app buttons, got %d" % (len(APP_LINK_APPS), len(cards)))
-    for (href, protocol), url in zip(cards, HOSTILE_APP_LINKS):
+    for href, protocol in cards:
         check(results, name, protocol not in ("javascript:", "vbscript:", "data:"),
-              "import_url %r became an app button that Chrome runs as %s" % (url, protocol))
-    for (href, protocol), (url, scheme) in zip(cards[len(HOSTILE_APP_LINKS):], SAFE_APP_LINKS):
+              "an app button with href=%r runs as %s in Chrome" % (href, protocol))
+    check(results, name, [href for href, _ in cards] == [url for url, _ in SAFE_APP_LINKS],
+          "only the %d safe apps should get a button, got %d: %r"
+          % (len(SAFE_APP_LINKS), len(cards), [href for href, _ in cards][:6]))
+    for (href, protocol), (url, scheme) in zip(cards, SAFE_APP_LINKS):
         check(results, name, href == url and protocol == scheme,
               "import_url %r should stay a %s link, Chrome sees href=%r as %s"
               % (url, scheme, href, protocol))

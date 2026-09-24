@@ -260,11 +260,30 @@ def url_checks(url):
     return problems
 
 
+def app_cards(page):
+    return [value for tag, attr, css, value in url_attributes(page)
+            if tag == "a" and attr == "href" and "appcard" in css.split()]
+
+
 def unlisted_checks(url):
-    hrefs = [value for tag, attr, css, value in url_attributes(render_urls(url))
-             if tag == "a" and attr == "href" and "appcard" in css.split()]
-    if hrefs != [""]:
-        return ["an app button may only use a known app scheme, it links to %r" % hrefs]
+    page = render_urls(url)
+    problems = []
+    if app_cards(page):
+        problems.append("an app whose link is refused must not get a button, found %r" % app_cards(page))
+    if 'data-i18n="quickAdd"' in page:
+        problems.append("the quick-add heading is shown over no app buttons")
+    return problems
+
+
+def mixed_card_checks():
+    apps = [{"name": "one", "icon_url": "", "import_url": "ms-msdt:/id x", "download_links": []},
+            {"name": "two", "icon_url": "", "import_url": "happ://add/https://sub.example/sub/T",
+             "download_links": []},
+            {"name": "three", "icon_url": "", "import_url": "\x01javascript:alert(1)//", "download_links": []}]
+    page = subrender.render([], [], [], "active", apps=apps)
+    cards = app_cards(page)
+    if cards != ["happ://add/https://sub.example/sub/T"]:
+        return ["only the happ app should get a button, got %r" % cards]
     return []
 
 
@@ -314,6 +333,12 @@ def main():
         for item in problems:
             print("      %s" % item)
             failures.append("%r: %s" % (url, item))
+
+    mixed = mixed_card_checks()
+    print("  %-44s %s" % ("one good app among refused ones", "one button" if not mixed else "WRONG"))
+    for item in mixed:
+        print("      %s" % item)
+        failures.append(item)
 
     for url in LEGIT_APP_URLS:
         problems = legit_checks(url)

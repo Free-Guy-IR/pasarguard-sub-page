@@ -435,13 +435,15 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
       {% endif %}
     </div>
 
-    {% if apps %}
+    {% set import_apps = [] %}
+    {% for app in (apps or []) if app.import_url and (appurl(app.import_url) | trim) %}{% set _ = import_apps.append(app) %}{% endfor %}
+    {% if import_apps %}
     <div class="sec">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       <h2 data-i18n="quickAdd">افزودن سریع به اپلیکیشن</h2>
     </div>
     <div class="grid3">
-      {% for app in apps if app.import_url %}
+      {% for app in import_apps %}
       {% set tone = tones[loop.index0 % 5] %}
       <a class="appcard" href="{{ appurl(app.import_url) }}" rel="noopener noreferrer">
         <div class="ico {{ tone }}">
