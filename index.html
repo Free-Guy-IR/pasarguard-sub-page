@@ -259,9 +259,9 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
 {%- if s.lower().startswith('https://') or s.lower().startswith('http://') -%}{{ s | e }}{%- endif -%}
 {%- endmacro -%}
 {%- macro appurl(u) -%}
+{%- set app_schemes = ['https','http','happ','v2rayng','v2box','v2raytun','streisand','sing-box','hiddify','karing','clash','clashmeta','flclash','koala-clash','stash','foxray','shadowrocket','sub','sn','husi','incy','loon','surge','quantumult-x','npvtsub'] -%}
 {%- set s = (u or '') | string | trim -%}
-{%- set sch = s.split(':', 1)[0] -%}
-{%- if ':' in s and sch[:1].isalpha() and not sch.strip('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-') and sch.lower() not in ('javascript','data','vbscript','file','blob','about','filesystem','view-source','jar') -%}{{ s | e }}{%- endif -%}
+{%- if ':' in s and s.split(':', 1)[0].lower() in app_schemes -%}{{ s | e }}{%- endif -%}
 {%- endmacro -%}
 {% set st = user.status.value if user.status is not string else user.status %}
 {% set used = user.used_traffic or 0 %}

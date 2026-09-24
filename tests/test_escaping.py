@@ -53,6 +53,19 @@ SMUGGLED_SCHEMES = [
     "\x0ejavascript:alert(18)//{url}",
 ]
 
+UNLISTED_APP_URLS = [
+    "ms-msdt:/id PCWDiagnostic /skip force /param x",
+    "search-ms:query=invoice&crumb=location:\\\\192.0.2.9\\share",
+    "intent://scan/#Intent;scheme=zxing;end",
+    "filesystem:https://sub.example/temporary/x",
+    "view-source:https://sub.example/",
+    "jar:https://sub.example/x.jar!/",
+    "chrome://settings",
+    "unknownapp://import/https://sub.example/sub/TOKEN",
+    "sub.example/sub/TOKEN",
+    "//sub.example/sub/TOKEN",
+]
+
 LEGIT_APP_URLS = [
     "happ://add/https://sub.example/sub/TOKEN",
     "v2rayng://install-config?url=https://sub.example/sub/TOKEN",
@@ -101,8 +114,8 @@ def macros_escape(text):
         body = match.group(0)
         if not re.search(r"\|\s*e\b", body):
             missing.append("%s does not escape what it emits" % macro)
-        if macro == "appurl" and "javascript" not in body:
-            missing.append("appurl does not block a javascript scheme")
+        if macro == "appurl" and "app_schemes" not in body:
+            missing.append("appurl does not limit links to a list of app schemes")
         if macro == "httpurl" and "http" not in body:
             missing.append("httpurl does not restrict the scheme")
     return missing
@@ -247,6 +260,14 @@ def url_checks(url):
     return problems
 
 
+def unlisted_checks(url):
+    hrefs = [value for tag, attr, css, value in url_attributes(render_urls(url))
+             if tag == "a" and attr == "href" and "appcard" in css.split()]
+    if hrefs != [""]:
+        return ["an app button may only use a known app scheme, it links to %r" % hrefs]
+    return []
+
+
 def legit_checks(url):
     hrefs = [value for tag, attr, css, value in url_attributes(render_urls(url))
              if tag == "a" and attr == "href" and "appcard" in css.split()]
@@ -287,6 +308,13 @@ def main():
             print("      %s" % item)
             failures.append("%r: %s" % (url, item))
 
+    for url in UNLISTED_APP_URLS:
+        problems = unlisted_checks(url)
+        print("  %-44s %s" % (repr(url)[:44], "refused" if not problems else "ACCEPTED"))
+        for item in problems:
+            print("      %s" % item)
+            failures.append("%r: %s" % (url, item))
+
     for url in LEGIT_APP_URLS:
         problems = legit_checks(url)
         print("  %-44s %s" % (repr(url)[:44], "kept" if not problems else "BROKEN"))
@@ -299,7 +327,8 @@ def main():
         print("  FAIL: %d problems" % len(failures))
         return 1
     print("  PASS: %d interpolations all escaped, %d hostile strings inert, %d dangerous urls blocked,"
-          " %d app links kept" % (total, len(HOSTILE), len(hostile_urls), len(LEGIT_APP_URLS)))
+          " %d unknown schemes refused, %d app links kept"
+          % (total, len(HOSTILE), len(hostile_urls), len(UNLISTED_APP_URLS), len(LEGIT_APP_URLS)))
     return 0
 
 

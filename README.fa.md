@@ -153,7 +153,7 @@ curl -X PUT "https://panel.example.com/api/admin/reseller_ali" \
 | `user.expire` | تاریخ انقضا |
 | `user.on_hold_expire_duration` | ثانیه، برای کاربر در انتظار شروع |
 | `links` | فهرست رشته‌های کانفیگ |
-| `apps` | برنامه‌ها با `name`، `icon_url`، `import_url`، `platform.value`، `description`، `download_links` |
+| `apps` | برنامه‌ها با `name`، `icon_url`، `import_url`، `platform.value`، `description`، `download_links`؛ دکمهٔ هر برنامه فقط وقتی به `import_url` لینک می‌شود که طرح آن در فهرست `app_schemes` داخل ماکروی `appurl` باشد (happ، v2rayng، v2box، streisand، sing-box، hiddify، clash و دیگر کلاینت‌های VPN، به‌علاوهٔ https)؛ اگر طرح کلاینت شما در فهرست نیست، آن را اضافه کنید |
 | `announce` / `announce_url` | متن اطلاعیه و آدرس آن؛ این صفحه فقط `announce_url` را برای دکمهٔ پشتیبانی به کار می‌برد |
 | `has_openvpn` | آیا کاربر کانفیگ OpenVPN دارد |
 | `openvpn_configs` | فایل‌های OpenVPN، هرکدام با `filename`، `protocol`، `content`، `remotes` |

@@ -125,7 +125,7 @@ Editing a template file takes effect on the next page load; no restart. A path t
 | `user.expire` | expiry date |
 | `user.on_hold_expire_duration` | seconds, for a user who has not started |
 | `links` | the config strings |
-| `apps` | each with `name`, `icon_url`, `import_url`, `platform.value`, `description`, `download_links` |
+| `apps` | each with `name`, `icon_url`, `import_url`, `platform.value`, `description`, `download_links`; an app button links to `import_url` only when its scheme is in `app_schemes` inside the `appurl` macro (happ, v2rayng, v2box, streisand, sing-box, hiddify, clash and other VPN clients, plus https); add your client's scheme there if it is missing |
 | `announce` / `announce_url` | the announcement text and its URL; this page uses only `announce_url`, for the Support button |
 | `has_openvpn` | whether the user has any OpenVPN config |
 | `openvpn_configs` | the OpenVPN files, each with `filename`, `protocol`, `content`, `remotes` |
