@@ -75,6 +75,58 @@ WG_INJECT = [
     ),
 ]
 
+def panel_wg(host, keepalive, tag):
+    return (
+        "wireguard://cHJpdg%%3D%%3D@%s/?publickey=cHVia2V5&address=10.0.0.2%%2F32&mtu=1420"
+        "&allowedips=0.0.0.0%%2F0%%2C%%3A%%3A%%2F0&keepalive=%s&reserved=1%%2C2%%2C3"
+        "&dns=192.0.2.53#%s" % (host, keepalive, tag)
+    )
+
+
+WG_KEEPALIVE = [
+    panel_wg("ka-a.example.com:51820", "25", "keepalive-25"),
+    panel_wg("ka-b.example.com:51820", "65535", "keepalive-max"),
+    panel_wg("ka-c.example.com:51820", "025", "keepalive-leading-zero"),
+]
+
+WG_KEEPALIVE_EXPECTED = {"wg-ka-a.conf": "25", "wg-ka-b.conf": "65535", "wg-ka-c.conf": "25"}
+
+KEEPALIVE_REFUSED = [
+    "25%0APostUp%20%3D%20rm%20-rf%20%2F",
+    "25%0D%0APostUp%20%3D%20rm%20-rf%20%2F",
+]
+
+KEEPALIVE_IGNORED = [
+    "25%20PostUp%20%3D%20rm%20-rf%20%2F",
+    "25%3BPostUp%3Drm",
+    "0",
+    "00",
+    "-1",
+    "65536",
+    "123456789012345678901234567890",
+    "1e3",
+    "0x19",
+    "25.5",
+    "%2B25",
+    "%2025",
+    "25%20",
+    "off",
+    "%D9%A2%D9%A5",
+    "",
+]
+
+WG_KEEPALIVE_HOSTILE = [
+    panel_wg("kr%d.example.com:51820" % i, value, "refused-%d" % i)
+    for i, value in enumerate(KEEPALIVE_REFUSED)
+] + [
+    panel_wg("ki%d.example.com:51820" % i, value, "ignored-%d" % i)
+    for i, value in enumerate(KEEPALIVE_IGNORED)
+]
+
+WG_DIRECTIVES_WITHOUT_KEEPALIVE = [
+    "PrivateKey", "Address", "DNS", "MTU", "PublicKey", "AllowedIPs", "Endpoint",
+]
+
 OVPN = [
     {"protocol": "udp", "filename": "node-udp.ovpn", "content": "client\ndev tun\nproto udp\n"},
     {"protocol": "tcp", "filename": "node-tcp.ovpn", "content": "client\ndev tun\nproto tcp\n"},
@@ -526,6 +578,113 @@ def fixture_injection(page, results, name, out_dir):
     return after
 
 
+def conf_directives(body):
+    section = None
+    found = []
+    for line in body.split("\n"):
+        if line.startswith("[") and line.endswith("]"):
+            section = line
+        elif line:
+            key, _, value = line.partition(" = ")
+            found.append((section, key, value))
+    return found
+
+
+def zip_entries(page, results, name, out_dir):
+    raw = page.last_blob()
+    (out_dir / (name.replace(" ", "-") + ".zip")).write_bytes(raw)
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(raw))
+        return {entry: archive.read(entry).decode("utf-8") for entry in archive.namelist()}
+    except Exception as error:
+        check(results, name, False, "the zip does not open: %s" % error)
+        return {}
+
+
+def check_keepalive(results, name, body, expected):
+    found = [(section, value) for section, key, value in conf_directives(body)
+             if key == "PersistentKeepalive"]
+    check(results, name, found == [("[Peer]", expected)],
+          "expected exactly one 'PersistentKeepalive = %s' in [Peer], got %s" % (expected, found))
+    check(results, name, body.count("PersistentKeepalive") == 1,
+          "PersistentKeepalive appears %d times in the file" % body.count("PersistentKeepalive"))
+    check(results, name, "\nPersistentKeepalive = %s\n" % expected in body,
+          "the file has no line reading 'PersistentKeepalive = %s'" % expected)
+
+
+def fixture_keepalive(page, results, name, out_dir):
+    state = page.wait_ready()
+    check(results, name, state["wgCards"] == len(WG_KEEPALIVE),
+          "expected %d WireGuard cards, got %s" % (len(WG_KEEPALIVE), state["wgCards"]))
+    page.click("#wgBtn")
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
+
+    page.click("#wgList .cfg .mini")
+    time.sleep(0.5)
+    single = page.snapshot()
+    check(results, name, single["downloads"] == ["wg-ka-a.conf"],
+          "expected the single download wg-ka-a.conf, got %s" % single["downloads"])
+    check_keepalive(results, name + " (single file)", (single["blobBodies"] or [""])[0], "25")
+
+    page.click("#wgDownloadAll")
+    time.sleep(1.2)
+    after = page.snapshot()
+    check(results, name, after["downloads"] == ["wg-ka-a.conf", "wireguard.zip"],
+          "expected the .conf then wireguard.zip, got %s" % after["downloads"])
+    entries = zip_entries(page, results, name, out_dir)
+    check(results, name, sorted(entries) == sorted(WG_KEEPALIVE_EXPECTED),
+          "zip entries %s, expected %s" % (sorted(entries), sorted(WG_KEEPALIVE_EXPECTED)))
+    for entry, expected in sorted(WG_KEEPALIVE_EXPECTED.items()):
+        check_keepalive(results, "%s (%s)" % (name, entry), entries.get(entry, ""), expected)
+    return after
+
+
+def fixture_keepalive_hostile(page, results, name, out_dir):
+    state = page.wait_ready()
+    check(results, name, state["wgCards"] == len(WG_KEEPALIVE_HOSTILE),
+          "every link belongs in the sheet, got %s" % state["wgCards"])
+    page.click("#wgBtn")
+    time.sleep(0.3)
+    check(results, name, page.snapshot()["wgModalOpen"],
+          "clicking the button did not open the sheet")
+
+    for index in range(len(KEEPALIVE_REFUSED)):
+        tag = page.evaluate(
+            "var c = document.querySelectorAll('#wgList .cfg')[%d];"
+            " c.querySelector('.mini').click(); c.getAttribute('data-uri').split('#').pop();"
+            % index
+        )
+        time.sleep(0.4)
+        refused = page.snapshot()
+        check(results, name, tag == "refused-%d" % index,
+              "card %d is %r, expected refused-%d" % (index, tag, index))
+        check(results, name, refused["blobs"] == 0 and refused["downloads"] == [],
+              "a keepalive carrying a line break must be refused, got %s file(s) %s"
+              % (refused["blobs"], refused["downloads"]))
+
+    page.click("#wgDownloadAll")
+    time.sleep(1.5)
+    after = check_zip(page, results, name, len(KEEPALIVE_IGNORED), out_dir)
+    entries = zip_entries(page, results, name, out_dir)
+    expected_names = sorted("wg-ki%d.conf" % i for i in range(len(KEEPALIVE_IGNORED)))
+    check(results, name, sorted(entries) == expected_names,
+          "zip entries %s, expected %s" % (sorted(entries), expected_names))
+    for entry, body in sorted(entries.items()):
+        value = KEEPALIVE_IGNORED[int(entry[len("wg-ki"):-len(".conf")])]
+        keys = [key for _, key, _ in conf_directives(body)]
+        check(results, name, keys == WG_DIRECTIVES_WITHOUT_KEEPALIVE,
+              "keepalive=%r gave %s the directives %s, expected %s"
+              % (value, entry, keys, WG_DIRECTIVES_WITHOUT_KEEPALIVE))
+        check(results, name, "PersistentKeepalive" not in body,
+              "keepalive=%r is not a plain 1-65535 integer but %s carries PersistentKeepalive"
+              % (value, entry))
+        check(results, name, "PostUp" not in body,
+              "keepalive=%r smuggled a PostUp directive into %s" % (value, entry))
+    return after
+
+
 def fixture_wg_only(page, results, name, out_dir):
     state = page.wait_ready()
     check(results, name, state["wgCards"] == 3,
@@ -617,6 +776,8 @@ FIXTURES = [
     ("case-only host collision", WG_CASE, [], [], "active", fixture_case_collision),
     ("usable + unusable card", WG_OK[:1] + WG_BAD[:1], [], [], "active",
      fixture_unconvertible_card),
+    ("wireguard keepalive", WG_KEEPALIVE, [], [], "active", fixture_keepalive),
+    ("hostile keepalive", WG_KEEPALIVE_HOSTILE, [], [], "active", fixture_keepalive_hostile),
     ("wireguard only", WG_OK, [], [], "active", fixture_wg_only),
     ("openvpn only", VLESS, OVPN, [], "active", fixture_ovpn_only),
     ("l2tp only", VLESS, [], L2TP, "active", fixture_l2tp_only),

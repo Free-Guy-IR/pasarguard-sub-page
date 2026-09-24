@@ -739,6 +739,12 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     return typeof v === "string" && !/[\u0000-\u001f\u007f#]/.test(v);
   }
 
+  function keepaliveSeconds(v) {
+    if (typeof v !== "string" || !/^[0-9]{1,5}$/.test(v)) return 0;
+    var n = parseInt(v, 10);
+    return n >= 1 && n <= 65535 ? n : 0;
+  }
+
   function wgConf(uri) {
     if (typeof uri !== "string") return null;
     if (!/^(wireguard|wg):\/\//i.test(uri)) return null;
@@ -773,7 +779,10 @@ hr.dash{border:0; border-top:1px dashed rgb(255 255 255 / .12); margin:0}
     L.push("", "[Peer]", "PublicKey = " + p.publickey);
     if (p.presharedkey) L.push("PresharedKey = " + p.presharedkey);
     L.push("AllowedIPs = " + (p.allowedips || "0.0.0.0/0,::/0"));
-    L.push("Endpoint = " + endpoint, "");
+    L.push("Endpoint = " + endpoint);
+    var keepalive = keepaliveSeconds(p.keepalive);
+    if (keepalive) L.push("PersistentKeepalive = " + keepalive);
+    L.push("");
     var host = (endpoint.split(":")[0].split(".")[0] || "wg").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 12);
     return { name: ("wg-" + host).slice(0, 15) + ".conf", body: L.join("\n") };
   }
