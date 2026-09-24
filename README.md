@@ -56,10 +56,10 @@ CUSTOM_TEMPLATES_DIRECTORY=/var/lib/pasarguard/templates/
 SUBSCRIPTION_PAGE_TEMPLATE=subscription/index.html
 ```
 
-Restart the panel:
+Recreate the panel's container so it reads the new `.env`; `docker compose restart` keeps the old environment:
 
 ```bash
-cd /opt/pasarguard && docker compose restart pasarguard
+cd /opt/pasarguard && docker compose up -d pasarguard
 ```
 
 If the panel runs in Docker, make sure the templates directory is mounted into the container:

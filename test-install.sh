@@ -73,6 +73,17 @@ else
 fi
 
 echo
+echo "the READMEs recreate the container instead of restarting it"
+readmes="$(ls "$(dirname "$SCRIPT")"/README*.md 2>/dev/null)"
+if [ -z "$readmes" ]; then
+  echo " skip  no README beside the installer"
+elif hits="$(grep -nE '^[[:space:]]*(cd [^&]+&&[[:space:]]*)?docker compose restart' $readmes)"; then
+  printf '%s FAIL%s a README still tells people to run docker compose restart, which does not re-read .env: %s\n' "$c_red" "$c_off" "$(printf '%s' "$hits" | tr '\n' ' ')"; fail=$((fail+1))
+else
+  printf '%s ok  every README uses docker compose up -d%s\n' "$c_grn" "$c_off"; pass=$((pass+1))
+fi
+
+echo
 echo "rollback also restores the env file it backed up"
 if grep -q 'restored \$ENV_FILE' "$SCRIPT" || grep -q 'cp -p "\$EB" "\$ENV_FILE"' "$SCRIPT"; then
   printf '%s ok  rollback restores .env%s\n' "$c_grn" "$c_off"; pass=$((pass+1))

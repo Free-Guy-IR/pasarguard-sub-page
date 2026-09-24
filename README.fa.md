@@ -54,10 +54,10 @@ CUSTOM_TEMPLATES_DIRECTORY=/var/lib/pasarguard/templates/
 SUBSCRIPTION_PAGE_TEMPLATE=subscription/index.html
 ```
 
-و پنل را ری‌استارت کنید:
+و کانتینر پنل را از نو بسازید تا `.env` تازه را بخواند؛ `docker compose restart` همان محیط قبلی را نگه می‌دارد:
 
 ```bash
-cd /opt/pasarguard && docker compose restart pasarguard
+cd /opt/pasarguard && docker compose up -d pasarguard
 ```
 
 اگر پنل را با داکر بالا می‌آورید، مطمئن شوید پوشهٔ قالب‌ها داخل کانتینر mount شده باشد:
