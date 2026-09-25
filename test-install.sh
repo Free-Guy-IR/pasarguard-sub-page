@@ -244,6 +244,14 @@ lexpect "$([ "$LRC" -ne 0 ] && grep -q 'LIVE PAGE rollback-backup-is-a-link' "$L
   "rollback to a backup that is a link: refused, the live page untouched (exit $LRC)"
 lexpect "$([ -z "$(leaked_into_tpl)" ] && echo 1)" "rollback to a backup that is a link: nothing it points at is copied in: $(leaked_into_tpl)"
 
+link_case rollback-backup-is-a-hard-link
+ln "$LC/host/secret" "$LC/tpl/subscription/index.html.bak-99991231-235959"
+run_linked --rollback
+lexpect "$([ "$LRC" -ne 0 ] && grep -q 'LIVE PAGE rollback-backup-is-a-hard-link' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "rollback to a backup that is a hard link to another file: refused, the live page untouched (exit $LRC)"
+lexpect "$(! grep -qF 'HOST SECRET' "$LC/tpl/subscription/index.html" && [ "$(lmode "$LC/host/secret")" = 600 ] && echo 1)" \
+  "rollback to a backup that is a hard link to another file: its content does not go live"
+
 link_case rollback-live-is-a-link
 printf 'OLD PAGE\n' > "$LC/tpl/subscription/index.html.bak-99991231-235959"
 rm "$LC/tpl/subscription/index.html"
@@ -264,6 +272,15 @@ lexpect "$([ -z "$(ls -A "$LC/tpl/subscription" | grep -vE '^index\.html(\.bak-[
 run_linked --rollback
 lexpect "$([ "$LRC" -eq 0 ] && grep -q '^LIVE PAGE normal$' "$LC/tpl/subscription/index.html" && [ -f "$backup" ] && echo 1)" \
   "a normal rollback restores the backup and keeps it (exit $LRC)"
+lexpect "$([ "$(ls -i "$LC/tpl/subscription/index.html" | awk '{print $1}')" != "$(ls -i "$backup" | awk '{print $1}')" ] && echo 1)" \
+  "a normal rollback copies the backup instead of making the live page another name for it"
+sleep 1
+run_linked
+lexpect "$([ "$LRC" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$(lsha "$LINKPAGE")" ] && echo 1)" \
+  "installing again after a rollback works (exit $LRC: $(printf '%s' "$LOUT" | tail -n1))"
+run_linked --rollback
+lexpect "$([ "$LRC" -eq 0 ] && grep -q '^LIVE PAGE normal$' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "and rolling back a second time works (exit $LRC: $(printf '%s' "$LOUT" | tail -n1))"
 
 rm -rf "$LINKWORK"
 fi

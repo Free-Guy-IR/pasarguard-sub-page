@@ -108,6 +108,9 @@ newest_backup() {
 }
 
 mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+links_of() { stat -c '%h' "$1" 2>/dev/null || stat -f '%l' "$1"; }
+inode_size_of() { stat -c '%i:%s' "$1" 2>/dev/null || stat -f '%i:%z' "$1"; }
+open_inode_size_of() { stat -L -c '%i:%s' "/dev/fd/$1" 2>/dev/null || stat -L -f '%i:%z' "/dev/fd/$1"; }
 
 STAGE=""
 cleanup() { [ -z "${TMP:-}" ] || rm -f "$TMP"; [ -z "$STAGE" ] || rm -f "$STAGE"; }
@@ -142,11 +145,20 @@ if [ "$ROLLBACK" = 1 ]; then
   EB="$(ls -1 "$PANEL_DIR"/.env.bak-* 2>/dev/null | sort | tail -1 || true)"
   [ ! -L "$B" ] || die "refusing to restore $B: it is a symbolic link"
   [ -f "$B" ] || die "refusing to restore $B: it is not a regular file"
+  [ "$(links_of "$B")" = 1 ] || die "refusing to restore $B: it is also reachable under another name (a hard link), so it is not a backup this installer made"
   say "restoring $B"
   if [ "$DRY" = 1 ]; then plan "copy $B over $TARGET"; exit 0; fi
   refuse_linked_dirs
+  checked="$(inode_size_of "$B")"
+  exec 4<"$B" || die "could not open $B"
+  [ "$(open_inode_size_of 4)" = "$checked" ] && [ ! -L "$B" ] && [ "$(links_of "$B")" = 1 ] \
+    || die "$B changed while it was being opened; refusing to restore it"
+  TMP="$(mktemp)"
+  cat <&4 > "$TMP" || die "could not read $B"
+  exec 4<&-
+  [ "$(wc -c < "$TMP" | tr -d ' ')" = "${checked#*:}" ] || die "$B changed while it was being read; refusing to restore it"
   new_stage
-  ln -P "$B" "$STAGE" || die "could not stage $B"
+  ( set -o noclobber; cat "$TMP" > "$STAGE" ) || die "could not create a new file in $TPL_DIR/$SUBDIR"
   replace_target
   ok "restored $TARGET"
   if [ -n "${EB:-}" ]; then cp -p "$EB" "$ENV_FILE"; ok "restored $ENV_FILE from $EB"; fi
