@@ -3,8 +3,8 @@ set -euo pipefail
 umask 022
 
 REPO="Free-Guy-IR/pasarguard-sub-page"
-REF="${REF:-0bf5956eb37736b52c9fc3a42eb29a06adb0e44b}"
-EXPECT_SHA256="4aac823d6d25b088b11c8250a9a890b3c27442ba33b5d5eee96e0f70c59d38d2"
+REF="${REF:-dcebea305381530336e6905eebefb6f565b3cc54}"
+EXPECT_SHA256="eb9d0d4997bb3ac076dc2a911777bdf78e6d3e1df6dc036bf97d887849138952"
 
 PANEL_DIR="${PANEL_DIR:-/opt/pasarguard}"
 TPL_DIR="${TPL_DIR:-/var/lib/pasarguard/templates}"
