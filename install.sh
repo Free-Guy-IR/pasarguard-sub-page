@@ -225,12 +225,16 @@ lock_holder() {
   esac
 }
 
+process_alive() {
+  kill -0 "$1" 2>/dev/null || ps -p "$1" >/dev/null 2>&1
+}
+
 take_lock() {
   local tries=0 holder
   while ! mkdir "$LOCK_DIR" 2>/dev/null; do
     [ ! -L "$LOCK_DIR" ] || die "$LOCK_DIR is a symbolic link; refusing to use it as a lock"
     holder="$(lock_holder)"
-    if [ -n "$holder" ] && ! ps -p "$holder" >/dev/null 2>&1 && mkdir "$LOCK_DIR/takeover" 2>/dev/null; then
+    if [ -n "$holder" ] && ! process_alive "$holder" && mkdir "$LOCK_DIR/takeover" 2>/dev/null; then
       if [ "$(lock_holder)" = "$holder" ]; then
         printf '%s\n' "$$" > "$LOCK_DIR/pid.$$"
         mv -f "$LOCK_DIR/pid.$$" "$LOCK_DIR/pid"
