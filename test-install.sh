@@ -370,6 +370,30 @@ run_linked --rollback
 lexpect "$([ "$LRC" -ne 0 ] && ! grep -q 'ATTACKER PAGE' "$LC/tpl/subscription/index.html" && echo 1)" \
   "a checksum list that is a symbolic link is not trusted (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
 
+link_case edited-manifest
+run_linked
+backup="$(newest_page_backup)"
+printf 'ATTACKER PAGE\n' > "$LC/host/attacker"
+rm -f "$backup"
+cp "$LC/host/attacker" "$backup"
+awk -v name="subscription/$(basename "$backup")" -v forged="$(lsha "$LC/host/attacker")" \
+  '$2 == name { $1 = forged } { print $1 "  " $2 }' "$LC/panel/.subpage-backups.sha256" > "$LC/panel/.subpage-backups.sha256.new" 2>/dev/null \
+  && ln -f "$LC/panel/.subpage-backups.sha256.new" "$LC/host/manifest-second-name" \
+  && mv -f "$LC/panel/.subpage-backups.sha256.new" "$LC/panel/.subpage-backups.sha256"
+run_linked --rollback
+lexpect "$([ "$LRC" -ne 0 ] && ! grep -q 'ATTACKER PAGE' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "a checksum list that is also reachable under another name is not trusted (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+
+link_case wrong-checksum
+run_linked
+backup="$(newest_page_backup)"
+awk -v name="subscription/$(basename "$backup")" \
+  '$2 == name { $1 = "0000000000000000000000000000000000000000000000000000000000000000" } { print $1 "  " $2 }' \
+  "$LC/panel/.subpage-backups.sha256" > "$LC/private/manifest" && cat "$LC/private/manifest" > "$LC/panel/.subpage-backups.sha256"
+run_linked --rollback
+lexpect "$([ "$LRC" -ne 0 ] && grep -q '<!DOCTYPE html>' "$LC/tpl/subscription/index.html" && printf '%s' "$LOUT" | grep -q 'do not match' && echo 1)" \
+  "a recorded checksum that does not match the backup refuses the rollback (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+
 link_case env-backup-is-a-link
 run_linked
 envbak="$(newest_env_backup)"
@@ -416,6 +440,60 @@ lexpect "$([ "$install_waited" = 1 ] && echo 1)" \
   "concurrent install and rollback: the install waited for the rollback instead of running in the middle of it"
 lexpect "$([ "$rollback_rc" -eq 0 ] && [ "$install_rc" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$(lsha "$LINKPAGE")" ] && echo 1)" \
   "concurrent install and rollback: the page the install put live stays live, not the older snapshot (rollback $rollback_rc, install $install_rc, live: $(head -c 40 "$LC/tpl/subscription/index.html" | tr '\n' ' '))"
+
+link_case install-then-rollback
+run_linked
+sleep 1
+printf 'LIVE PAGE edited by hand\n' > "$LC/tpl/subscription/index.html"
+mkdir -p "$LC/pause"
+start_seamed "$LC/install.log" "PAUSE_PATH=$LC/panel/.subpage-backups.sha256 PAUSE_DIR=$LC/pause"
+install_pid=$STARTED
+n=0
+while [ ! -e "$LC/pause/paused" ] && kill -0 "$install_pid" 2>/dev/null && [ "$n" -lt 200 ]; do sleep 0.1; n=$((n+1)); done
+start_seamed "$LC/rollback.log" "NO_SEAM=1" --rollback
+rollback_pid=$STARTED
+n=0
+while kill -0 "$rollback_pid" 2>/dev/null && [ "$n" -lt 40 ]; do sleep 0.1; n=$((n+1)); done
+if kill -0 "$rollback_pid" 2>/dev/null; then rollback_waited=1; else rollback_waited=0; fi
+: > "$LC/pause/go"
+wait "$install_pid"; install_rc=$?
+wait "$rollback_pid"; rollback_rc=$?
+lexpect "$([ "$rollback_waited" = 1 ] && echo 1)" \
+  "concurrent install then rollback: the rollback waited for the install to record its backup"
+lexpect "$([ "$install_rc" -eq 0 ] && [ "$rollback_rc" -eq 0 ] && grep -q '^LIVE PAGE edited by hand$' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "concurrent install then rollback: the rollback restores the page that install replaced (install $install_rc, rollback $rollback_rc: $(grep -E 'refusing|restored' "$LC/rollback.log" | head -n1))"
+
+echo
+echo "a lock left behind is taken over only when its holder is gone"
+
+link_case stale-lock
+( exit 0 ) &
+dead_pid=$!
+wait "$dead_pid"
+mkdir "$LC/panel/.subpage-install.lock"
+printf '%s\n' "$dead_pid" > "$LC/panel/.subpage-install.lock/pid"
+run_linked
+lexpect "$([ "$LRC" -eq 0 ] && printf '%s' "$LOUT" | grep -q "took over the lock left by process $dead_pid" && [ ! -e "$LC/panel/.subpage-install.lock" ] && echo 1)" \
+  "a lock whose holder has exited is taken over, and released afterwards (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'lock' | head -n1))"
+
+link_case live-lock
+sleep 30 &
+holder_pid=$!
+mkdir "$LC/panel/.subpage-install.lock"
+printf '%s\n' "$holder_pid" > "$LC/panel/.subpage-install.lock/pid"
+start_seamed "$LC/install.log" "NO_SEAM=1"
+install_pid=$STARTED
+n=0
+while kill -0 "$install_pid" 2>/dev/null && [ "$n" -lt 30 ]; do sleep 0.1; n=$((n+1)); done
+if kill -0 "$install_pid" 2>/dev/null && [ "$(cat "$LC/panel/.subpage-install.lock/pid" 2>/dev/null)" = "$holder_pid" ] \
+   && grep -q '^LIVE PAGE live-lock$' "$LC/tpl/subscription/index.html"; then held=1; else held=0; fi
+kill "$holder_pid" 2>/dev/null
+wait "$holder_pid" 2>/dev/null
+wait "$install_pid"; install_rc=$?
+lexpect "$([ "$held" = 1 ] && echo 1)" \
+  "a lock held by a running process is left alone, and the install waits without touching the page"
+lexpect "$([ "$install_rc" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$(lsha "$LINKPAGE")" ] && [ ! -e "$LC/panel/.subpage-install.lock" ] && echo 1)" \
+  "once that holder exits, the install takes the lock, finishes and releases it (exit $install_rc)"
 
 rm -rf "$LINKWORK"
 fi
