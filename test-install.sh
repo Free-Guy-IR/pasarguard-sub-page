@@ -194,13 +194,57 @@ while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; --proto) shift 2 ;;
 [ -n "$out" ] || exit 2
 cp "$FAKE_PAGE" "$out"
 EOF
-  chmod +x "$LC/bin/id" "$LC/bin/curl"
+  cat > "$LC/bin/stat" <<'EOF'
+#!/usr/bin/env bash
+for last in "$@"; do :; done
+if [ -n "${PAUSE_PATH:-}" ] && [ "$last" = "$PAUSE_PATH" ] && [ ! -e "$PAUSE_DIR/paused" ]; then
+  : > "$PAUSE_DIR/paused"
+  n=0
+  while [ ! -e "$PAUSE_DIR/go" ] && [ "$n" -lt 600 ]; do sleep 0.1; n=$((n+1)); done
+fi
+out="$(/usr/bin/stat "$@")" || exit $?
+if [ -n "${SWAP_TARGET:-}" ]; then
+  if [ "$last" = "$SWAP_TARGET" ] && [ ! -e "$SWAP_STATE/one" ]; then
+    : > "$SWAP_STATE/one"
+    rm -f "$SWAP_TARGET"
+    ln "$SWAP_SECRET" "$SWAP_TARGET"
+  elif [ "${last#/dev/fd/}" != "$last" ] && [ -e "$SWAP_STATE/one" ] && [ ! -e "$SWAP_STATE/two" ]; then
+    : > "$SWAP_STATE/two"
+    rm -f "$SWAP_TARGET"
+    printf 'FRESH SINGLE LINK FILE\n' > "$SWAP_TARGET"
+  fi
+fi
+printf '%s\n' "$out"
+EOF
+  chmod +x "$LC/bin/id" "$LC/bin/curl" "$LC/bin/stat"
 }
 
 run_linked() {
   LOUT="$(env -i HOME="$LC" PATH="$LC/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$LC/private" \
     TPL_DIR="$LC/tpl" FAKE_PAGE="$LINKPAGE" bash "$SELF" --dir "$LC/panel" "$@" 2>&1)"
   LRC=$?
+}
+
+run_seamed() {
+  local seam="$1"; shift
+  LOUT="$(env -i HOME="$LC" PATH="$LC/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$LC/private" \
+    TPL_DIR="$LC/tpl" FAKE_PAGE="$LINKPAGE" $seam bash "$SELF" --dir "$LC/panel" "$@" 2>&1)"
+  LRC=$?
+}
+
+start_seamed() {
+  local log="$1" seam="$2"; shift 2
+  env -i HOME="$LC" PATH="$LC/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$LC/private" \
+    TPL_DIR="$LC/tpl" FAKE_PAGE="$LINKPAGE" $seam bash "$SELF" --dir "$LC/panel" "$@" > "$log" 2>&1 &
+  STARTED=$!
+}
+
+newest_page_backup() {
+  ls -1 "$LC/tpl/subscription"/index.html.bak-* 2>/dev/null | sort | tail -n1
+}
+
+newest_env_backup() {
+  ls -1 "$LC/panel"/.env.bak-* 2>/dev/null | sort | tail -n1
 }
 
 host_intact() {
@@ -253,12 +297,12 @@ lexpect "$(! grep -qF 'HOST SECRET' "$LC/tpl/subscription/index.html" && [ "$(lm
   "rollback to a backup that is a hard link to another file: its content does not go live"
 
 link_case rollback-live-is-a-link
-printf 'OLD PAGE\n' > "$LC/tpl/subscription/index.html.bak-99991231-235959"
+run_linked
 rm "$LC/tpl/subscription/index.html"
 ln -s "$LC/host/secret" "$LC/tpl/subscription/index.html"
 run_linked --rollback
 lexpect "$(host_intact && echo 1)" "rollback over a live page that is a link: the file it points at is untouched (exit $LRC)"
-lexpect "$([ "$LRC" -eq 0 ] && [ ! -L "$LC/tpl/subscription/index.html" ] && grep -q '^OLD PAGE$' "$LC/tpl/subscription/index.html" && echo 1)" \
+lexpect "$([ "$LRC" -eq 0 ] && [ ! -L "$LC/tpl/subscription/index.html" ] && grep -q '^LIVE PAGE rollback-live-is-a-link$' "$LC/tpl/subscription/index.html" && echo 1)" \
   "rollback over a live page that is a link: the live page is the backup, as a real file"
 
 link_case normal
@@ -281,6 +325,97 @@ lexpect "$([ "$LRC" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "
 run_linked --rollback
 lexpect "$([ "$LRC" -eq 0 ] && grep -q '^LIVE PAGE normal$' "$LC/tpl/subscription/index.html" && echo 1)" \
   "and rolling back a second time works (exit $LRC: $(printf '%s' "$LOUT" | tail -n1))"
+
+echo
+echo "rollback publishes only bytes this installer backed up"
+
+link_case two-swap
+run_linked
+backup="$(newest_page_backup)"
+mkdir -p "$LC/swap"
+run_seamed "SWAP_TARGET=$backup SWAP_SECRET=$LC/host/secret SWAP_STATE=$LC/swap" --rollback
+swaps="$(ls "$LC/swap" | tr '\n' ' ')"
+lexpect "$([ -e "$LC/swap/one" ] && echo 1)" "two-swap race: the seam swapped the backup for a hard link to a secret after its first check (swaps: $swaps)"
+lexpect "$([ "$LRC" -ne 0 ] && echo 1)" \
+  "two-swap race: a backup swapped to a hard link of a secret and back to a single-link file between checks is refused (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored|changed' | head -n1))"
+lexpect "$(! grep -qF 'HOST SECRET' "$LC/tpl/subscription/index.html" && [ -z "$(leaked_into_tpl)" ] && echo 1)" \
+  "two-swap race: the secret never goes live (live page: $(head -c 40 "$LC/tpl/subscription/index.html" | tr '\n' ' '))"
+lexpect "$(host_intact && echo 1)" "two-swap race: the secret itself is untouched"
+
+link_case legacy-backup
+cp "$LINKPAGE" "$LC/tpl/subscription/index.html.bak-99991231-235959"
+run_linked --rollback
+lexpect "$([ "$LRC" -ne 0 ] && grep -q '^LIVE PAGE legacy-backup$' "$LC/tpl/subscription/index.html" && printf '%s' "$LOUT" | grep -q 'no checksum on record' && printf '%s' "$LOUT" | grep -qF "index.html.bak-99991231-235959" && echo 1)" \
+  "a backup with no checksum on record is refused with the command to restore it by hand, and the live page is untouched (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+
+link_case tampered-backup
+run_linked
+backup="$(newest_page_backup)"
+printf 'TAMPERED AFTER BACKUP\n' > "$backup"
+run_linked --rollback
+lexpect "$([ "$LRC" -ne 0 ] && ! grep -q 'TAMPERED' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "a backup whose bytes changed after it was recorded is refused (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+
+link_case forged-manifest
+run_linked
+backup="$(newest_page_backup)"
+printf 'ATTACKER PAGE\n' > "$LC/host/attacker"
+forged="$(lsha "$LC/host/attacker")"
+rm -f "$backup"
+cp "$LC/host/attacker" "$backup"
+printf '%s  subscription/%s\n' "$forged" "$(basename "$backup")" > "$LC/host/forged-manifest"
+rm -f "$LC/panel/.subpage-backups.sha256"
+ln -s "$LC/host/forged-manifest" "$LC/panel/.subpage-backups.sha256"
+run_linked --rollback
+lexpect "$([ "$LRC" -ne 0 ] && ! grep -q 'ATTACKER PAGE' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "a checksum list that is a symbolic link is not trusted (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+
+link_case env-backup-is-a-link
+run_linked
+envbak="$(newest_env_backup)"
+rm -f "$envbak"
+ln -s "$LC/host/secret" "$envbak"
+run_linked --rollback
+lexpect "$(! grep -qF 'HOST SECRET' "$LC/panel/.env" && [ ! -L "$LC/panel/.env" ] && host_intact && echo 1)" \
+  "rollback never copies what a planted .env backup link points at into .env (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | tail -n1))"
+
+link_case env-is-a-link
+run_linked
+printf 'HOST ENV FILE\n' > "$LC/host/envfile"
+HOST_ENV_SHA="$(lsha "$LC/host/envfile")"
+rm -f "$LC/panel/.env"
+ln -s "$LC/host/envfile" "$LC/panel/.env"
+run_linked --rollback
+lexpect "$([ "$(lsha "$LC/host/envfile")" = "$HOST_ENV_SHA" ] && echo 1)" \
+  "rollback never writes through a .env that is a link (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | tail -n1))"
+lexpect "$([ "$LRC" -eq 0 ] && [ ! -L "$LC/panel/.env" ] && grep -q '^A=1$' "$LC/panel/.env" && echo 1)" \
+  "rollback over a .env that is a link restores the backed-up .env as a real file"
+
+echo
+echo "install and rollback do not interleave"
+
+link_case concurrent
+run_linked
+older="$(newest_page_backup)"
+sleep 1
+mkdir -p "$LC/pause"
+start_seamed "$LC/rollback.log" "PAUSE_PATH=$older PAUSE_DIR=$LC/pause" --rollback
+rollback_pid=$STARTED
+n=0
+while [ ! -e "$LC/pause/paused" ] && [ "$n" -lt 200 ]; do sleep 0.1; n=$((n+1)); done
+start_seamed "$LC/install.log" "NO_SEAM=1"
+install_pid=$STARTED
+n=0
+while kill -0 "$install_pid" 2>/dev/null && [ "$n" -lt 40 ]; do sleep 0.1; n=$((n+1)); done
+if kill -0 "$install_pid" 2>/dev/null; then install_waited=1; else install_waited=0; fi
+: > "$LC/pause/go"
+wait "$rollback_pid"; rollback_rc=$?
+wait "$install_pid"; install_rc=$?
+lexpect "$([ -e "$LC/pause/paused" ] && echo 1)" "concurrent install and rollback: the rollback was held after choosing its backup"
+lexpect "$([ "$install_waited" = 1 ] && echo 1)" \
+  "concurrent install and rollback: the install waited for the rollback instead of running in the middle of it"
+lexpect "$([ "$rollback_rc" -eq 0 ] && [ "$install_rc" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$(lsha "$LINKPAGE")" ] && echo 1)" \
+  "concurrent install and rollback: the page the install put live stays live, not the older snapshot (rollback $rollback_rc, install $install_rc, live: $(head -c 40 "$LC/tpl/subscription/index.html" | tr '\n' ' '))"
 
 rm -rf "$LINKWORK"
 fi
