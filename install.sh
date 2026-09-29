@@ -79,12 +79,13 @@ fi
 command -v curl >/dev/null || die "curl is required"
 command -v sha256sum >/dev/null || die "sha256sum is required"
 
-ENV_FILE="$PANEL_DIR/.env"
-[ -f "$ENV_FILE" ] || die "no .env at $ENV_FILE — pass --dir if the panel lives elsewhere"
-
 case "$TPL_DIR$PANEL_DIR" in
   *'"'*) die "paths may not contain a double quote" ;;
+  *[![:print:]]*) die "paths may only contain printable characters" ;;
 esac
+
+ENV_FILE="$PANEL_DIR/.env"
+[ -f "$ENV_FILE" ] || die "no .env at $ENV_FILE — pass --dir if the panel lives elsewhere"
 
 if [ -n "$ADMIN" ]; then
   SUBDIR="$ADMIN"
@@ -97,14 +98,37 @@ restart_panel() {
   if command -v docker >/dev/null && [ -f "$PANEL_DIR/docker-compose.yml" ]; then
     (cd "$PANEL_DIR" && docker compose up -d pasarguard >/dev/null 2>&1) \
       && ok "panel recreated with the new environment" \
-      || warn "could not restart automatically — run: cd $PANEL_DIR && docker compose up -d pasarguard"
+      || warn "could not restart automatically — run: cd $(printf '%q' "$PANEL_DIR") && docker compose up -d pasarguard"
   else
     warn "restart the panel yourself so it picks up the change"
   fi
 }
 
+stamp_ok() {
+  case "$1" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) return 0 ;;
+  esac
+  return 1
+}
+
+stamp_text() {
+  printf '%s-%s-%s %s:%s:%s' "${1:0:4}" "${1:4:2}" "${1:6:2}" "${1:9:2}" "${1:11:2}" "${1:13:2}"
+}
+
+backups_newest_first() {
+  local f base
+  for f in "$1/$2"*; do
+    base="${f##*/}"
+    if stamp_ok "${base#"$2"}"; then printf '%s\n' "$base"; fi
+  done | sort -r
+}
+
 newest_backup() {
-  ls -1 "$TPL_DIR/$SUBDIR"/index.html.bak-* 2>/dev/null | sort | tail -1
+  local name
+  for name in $(backups_newest_first "$TPL_DIR/$SUBDIR" index.html.bak-); do
+    printf '%s\n' "$TPL_DIR/$SUBDIR/$name"
+    return 0
+  done
 }
 
 mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
@@ -116,6 +140,7 @@ STAGE=""
 ENV_TMP=""
 PAGE_TMP=""
 MANIFEST_TMP=""
+MANIFEST_COPY=""
 CAPTURE_ERR=""
 CAPTURED_MODE=""
 RECORDED=""
@@ -172,14 +197,17 @@ EOF
   CAPTURED_MODE="$mode"
 }
 
+load_manifest() {
+  MANIFEST_COPY=""
+  [ -e "$MANIFEST" ] || [ -L "$MANIFEST" ] || return 0
+  MANIFEST_COPY="$(mktemp)"
+  capture_file "$MANIFEST" "$MANIFEST_COPY" || die "refusing to trust the checksum list $MANIFEST: $CAPTURE_ERR"
+}
+
 recorded_hash() {
   RECORDED=""
-  [ -e "$MANIFEST" ] || [ -L "$MANIFEST" ] || return 0
-  MANIFEST_TMP="$(mktemp)"
-  capture_file "$MANIFEST" "$MANIFEST_TMP" || die "refusing to trust the checksum list $MANIFEST: $CAPTURE_ERR"
-  RECORDED="$(awk -v key="$1" 'NF == 2 && $2 == key && length($1) == 64 && $1 !~ /[^0-9a-f]/ { hash = $1 } END { if (hash != "") print hash }' "$MANIFEST_TMP")"
-  rm -f "$MANIFEST_TMP"
-  MANIFEST_TMP=""
+  [ -n "$MANIFEST_COPY" ] || return 0
+  RECORDED="$(awk -v key="$1" 'NF == 2 && $2 == key && length($1) == 64 && $1 !~ /[^0-9a-f]/ { hash = $1 } END { if (hash != "") print hash }' "$MANIFEST_COPY")"
 }
 
 move_into_place() {
@@ -246,9 +274,13 @@ take_lock() {
       rmdir "$LOCK_DIR/takeover" 2>/dev/null || true
     fi
     tries=$((tries + 1))
+    [ "$tries" != 10 ] || say "waiting up to two minutes for another install or rollback (process ${holder:-not recorded yet}) to finish…"
     [ "$tries" -le 1200 ] || die "another install or rollback still holds $LOCK_DIR (process ${holder:-not recorded yet}).
-If you are sure none is running, remove the lock and try again:
-  rm -f \"$LOCK_DIR/pid\"; rmdir \"$LOCK_DIR\""
+A holder that has exited is taken over automatically, so the lock is either held by a running
+process, carries no process number, names a process number that has since been reused, or holds
+a takeover/ left by an installer that crashed while taking it over. If you are sure no install
+or rollback is running, remove the whole lock directory and try again:
+  rm -rf -- $(printf '%q' "$LOCK_DIR")"
     sleep 0.1
   done
   printf '%s\n' "$$" > "$LOCK_DIR/pid"
@@ -273,6 +305,7 @@ cleanup() {
   [ -z "$ENV_TMP" ] || rm -f "$ENV_TMP"
   [ -z "$PAGE_TMP" ] || rm -f "$PAGE_TMP"
   [ -z "$MANIFEST_TMP" ] || rm -f "$MANIFEST_TMP"
+  [ -z "$MANIFEST_COPY" ] || rm -f "$MANIFEST_COPY"
   release_lock
 }
 trap cleanup EXIT
@@ -299,26 +332,37 @@ if [ "$ROLLBACK" = 1 ]; then
   if [ "$DRY" = 1 ]; then
     B="$(newest_backup)" || true
     [ -n "${B:-}" ] || die "no backup found in $TPL_DIR/$SUBDIR"
-    say "restoring $B"
-    plan "copy $B over $TARGET, if its checksum matches the one recorded when it was backed up"
+    plan "restore the newest backup in $TPL_DIR/$SUBDIR whose checksum was recorded when it was backed up"
     exit 0
   fi
   take_lock
   refuse_linked_dirs
-  B="$(newest_backup)" || true
-  [ -n "${B:-}" ] || die "no backup found in $TPL_DIR/$SUBDIR"
-  EB="$(ls -1 "$PANEL_DIR"/.env.bak-* 2>/dev/null | sort | tail -1 || true)"
+  load_manifest
+  B=""
+  NEWEST_UNRECORDED=""
+  for name in $(backups_newest_first "$TPL_DIR/$SUBDIR" index.html.bak-); do
+    recorded_hash "$SUBDIR/$name"
+    if [ -n "$RECORDED" ]; then B="$TPL_DIR/$SUBDIR/$name"; break; fi
+    [ -n "$NEWEST_UNRECORDED" ] || NEWEST_UNRECORDED="$name"
+  done
+  if [ -z "$B" ]; then
+    [ -n "$NEWEST_UNRECORDED" ] || die "no backup found in $TPL_DIR/$SUBDIR"
+    die "refusing to restore $NEWEST_UNRECORDED, the newest backup in $TPL_DIR/$SUBDIR
+(taken at $(stamp_text "${NEWEST_UNRECORDED#index.html.bak-}")): there is no checksum on record for it in $MANIFEST,
+so it cannot be told apart from a file planted there. Backups made by an older installer
+have none. Check that file yourself before you copy it over index.html by hand."
+  fi
+  if [ -n "$NEWEST_UNRECORDED" ]; then
+    warn "skipping newer backups with no checksum on record; the newest of them was taken at $(stamp_text "${NEWEST_UNRECORDED#index.html.bak-}")"
+  fi
+  EB=""
+  for name in $(backups_newest_first "$PANEL_DIR" .env.bak-); do EB="$PANEL_DIR/$name"; break; done
   say "restoring $B"
-  recorded_hash "$SUBDIR/${B##*/}"
-  [ -n "$RECORDED" ] || die "refusing to restore $B: there is no checksum on record for it in $MANIFEST,
-so it cannot be told apart from a file planted in $TPL_DIR/$SUBDIR (backups made by
-an older installer have none). Look at it first; if it is the page you want, restore it by hand:
-  cp \"$B\" \"$TARGET\""
   TMP="$(mktemp)"
   capture_file "$B" "$TMP" || die "refusing to restore $B: $CAPTURE_ERR"
   [ "$(sha256_of "$TMP")" = "$RECORDED" ] \
     || die "refusing to restore $B: its bytes do not match the checksum recorded when it was backed up"
-  if [ -n "${EB:-}" ]; then
+  if [ -n "$EB" ]; then
     ENV_TMP="$(mktemp "$PANEL_DIR/.env.XXXXXXXXXX")"
     capture_file "$EB" "$ENV_TMP" || die "refusing to restore $EB: $CAPTURE_ERR"
     chmod "$CAPTURED_MODE" "$ENV_TMP"
@@ -327,7 +371,7 @@ an older installer have none). Look at it first; if it is the page you want, res
   ( set -o noclobber; cat "$TMP" > "$STAGE" ) || die "could not create a new file in $TPL_DIR/$SUBDIR"
   replace_target
   ok "restored $TARGET"
-  if [ -n "${EB:-}" ]; then
+  if [ -n "$EB" ]; then
     move_into_place "$ENV_TMP" "$ENV_FILE"
     ENV_TMP=""
     ok "restored $ENV_FILE from $EB"
@@ -336,6 +380,10 @@ an older installer have none). Look at it first; if it is the page you want, res
   restart_panel
   exit 0
 fi
+
+[ ! -L "$ENV_FILE" ] || die "$ENV_FILE is a symbolic link. This installer rewrites .env through a new file and a rename,
+which would replace the link with a copy of what it points at. Replace the link with the file
+it points at, or point --dir at the directory that holds the real .env, then run this again."
 
 say "fetching the page (${REF})…"
 TMP="$(mktemp)"
@@ -442,5 +490,4 @@ if [ -n "$BACKUP" ]; then
   say ""
   say "To go back:"
   say "    $0 --rollback"
-  say "${c_dim}or: cp \"$BACKUP\" \"$TARGET\"${c_off}"
 fi
