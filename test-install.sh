@@ -384,6 +384,12 @@ hostile_case "a command substitution" 'index.html.bak-99999999-$(touch DOLLAR_MA
 hostile_case "a newline" "$(printf 'index.html.bak-99999999-999999\nINJECTED LINE touch NEWLINE_MARKER')" 'INJECTED LINE' NEWLINE_MARKER
 hostile_case "an escape sequence" "$(printf 'index.html.bak-99999999-999999\033]0;PWNED\007')" "$(printf '\033]0;PWNED')" ESC_MARKER
 
+link_case hostile-directory
+esc_tpl="$LC/tpl$(printf '\033]0;PWNED\007')"
+run_seamed "TPL_DIR=$esc_tpl"
+lexpect "$([ "$LRC" -ne 0 ] && ! printf '%s' "$LOUT" | grep -qF "$(printf '\033]0;PWNED')" && [ ! -e "$esc_tpl" ] && echo 1)" \
+  "a templates directory with an escape sequence in its path is refused before anything is printed or created (exit $LRC)"
+
 echo
 echo "a .env that is a symbolic link is never turned into a wider-mode copy of its target"
 link_case env-link-install
