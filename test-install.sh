@@ -346,7 +346,61 @@ link_case legacy-backup
 cp "$LINKPAGE" "$LC/tpl/subscription/index.html.bak-99991231-235959"
 run_linked --rollback
 lexpect "$([ "$LRC" -ne 0 ] && grep -q '^LIVE PAGE legacy-backup$' "$LC/tpl/subscription/index.html" && printf '%s' "$LOUT" | grep -q 'no checksum on record' && printf '%s' "$LOUT" | grep -qF "index.html.bak-99991231-235959" && echo 1)" \
-  "a backup with no checksum on record is refused with the command to restore it by hand, and the live page is untouched (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+  "a backup with no checksum on record is refused, named by its timestamp, and the live page is untouched (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+lexpect "$(! printf '%s' "$LOUT" | grep -qE '^[[:space:]]*(cp|mv|cat|install)[[:space:]]' && echo 1)" \
+  "the refusal prints no shell command built from a file name: $(printf '%s' "$LOUT" | grep -E '^[[:space:]]*(cp|mv|cat|install)[[:space:]]' | head -n1)"
+
+link_case planted-newer-backup
+run_linked
+cp "$LINKPAGE" "$LC/tpl/subscription/index.html.bak-99991231-235959"
+run_linked --rollback
+lexpect "$([ "$LRC" -eq 0 ] && grep -q '^LIVE PAGE planted-newer-backup$' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "a planted, well-formed backup name newer than every recorded backup does not block rollback to the newest recorded one (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1))"
+
+echo
+echo "a hostile backup name never reaches a printed command or the raw terminal"
+paste_hints() {
+  mkdir -p "$LC/paste"
+  printf '%s\n' "$LOUT" | grep -E '^[[:space:]]+cp ' | while IFS= read -r line; do
+    (cd "$LC/paste" && env -i PATH=/usr/bin:/bin bash -c "$line" >/dev/null 2>&1)
+  done
+}
+hostile_case() {
+  local label="$1" name="$2" payload="$3" marker="$4"
+  link_case "hostile-$label"
+  run_linked
+  cp "$LINKPAGE" "$LC/tpl/subscription/$name"
+  run_linked --rollback
+  paste_hints
+  lexpect "$([ ! -e "$LC/paste/$marker" ] && echo 1)" \
+    "a backup name with $label: pasting what the installer printed runs nothing ($(ls "$LC/paste" | tr '\n' ' '))"
+  lexpect "$(! printf '%s' "$LOUT" | grep -qF "$payload" && echo 1)" \
+    "a backup name with $label: its raw bytes never reach the terminal"
+  lexpect "$([ "$LRC" -eq 0 ] && grep -q "^LIVE PAGE hostile-$label\$" "$LC/tpl/subscription/index.html" && echo 1)" \
+    "a backup name with $label: rollback still restores the newest recorded backup (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'refusing|restored' | head -n1 | LC_ALL=C tr -c ' -~' '?'))"
+}
+hostile_case "a double quote" 'index.html.bak-99999999"; touch "QUOTE_MARKER' 'touch "QUOTE_MARKER' QUOTE_MARKER
+hostile_case "a command substitution" 'index.html.bak-99999999-$(touch DOLLAR_MARKER)' '$(touch DOLLAR_MARKER)' DOLLAR_MARKER
+hostile_case "a newline" "$(printf 'index.html.bak-99999999-999999\nINJECTED LINE touch NEWLINE_MARKER')" 'INJECTED LINE' NEWLINE_MARKER
+hostile_case "an escape sequence" "$(printf 'index.html.bak-99999999-999999\033]0;PWNED\007')" "$(printf '\033]0;PWNED')" ESC_MARKER
+
+echo
+echo "a .env that is a symbolic link is never turned into a wider-mode copy of its target"
+link_case env-link-install
+printf 'DB_PASSWORD=hunter2\n' > "$LC/host/envfile"
+chmod 600 "$LC/host/envfile"
+ENV_HOST_SHA="$(lsha "$LC/host/envfile")"
+rm -f "$LC/panel/.env"
+ln -s "$LC/host/envfile" "$LC/panel/.env"
+run_linked
+widened=""
+for f in "$LC/panel"/.env*; do
+  if [ -f "$f" ] && [ ! -L "$f" ] && grep -q 'hunter2' "$f" && [ "$(lmode "$f")" != 600 ]; then widened="$widened ${f##*/}:$(lmode "$f")"; fi
+done
+lexpect "$([ -z "$widened" ] && echo 1)" \
+  "installing over a .env link leaves no copy of its secrets with a wider mode (exit $LRC, found:$widened, said: $(printf '%s' "$LOUT" | grep -E 'permissions|symbolic' | head -n1))"
+lexpect "$([ "$(lsha "$LC/host/envfile")" = "$ENV_HOST_SHA" ] && [ "$(lmode "$LC/host/envfile")" = 600 ] && echo 1)" \
+  "installing over a .env link leaves the file it points at untouched"
 
 link_case tampered-backup
 run_linked
