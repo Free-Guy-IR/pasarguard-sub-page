@@ -131,14 +131,18 @@ newest_backup() {
   done
 }
 
-mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
-
 MANIFEST="$PANEL_DIR/.subpage-backups.sha256"
 LOCK_DIR="$PANEL_DIR/.subpage-install.lock"
 LOCK_HELD=""
 STAGE=""
 ENV_TMP=""
+ENV_ORIG=""
+ENV_WORK=""
+ENV_NOW=""
 PAGE_TMP=""
+COPY_TMP=""
+DISCARD_PAGE_BAK=""
+DISCARD_ENV_BAK=""
 MANIFEST_TMP=""
 MANIFEST_COPY=""
 CAPTURE_ERR=""
@@ -219,29 +223,104 @@ move_into_place() {
   esac
 }
 
-record_backup() {
-  local backup="$1" hash
-  PAGE_TMP="$(mktemp)"
-  if ! capture_file "$backup" "$PAGE_TMP"; then
-    warn "kept the previous page at $backup but did not record its checksum ($CAPTURE_ERR), so --rollback will refuse it"
-    rm -f "$PAGE_TMP"
-    PAGE_TMP=""
-    return 0
-  fi
-  hash="$(sha256_of "$PAGE_TMP")"
-  rm -f "$PAGE_TMP"
-  PAGE_TMP=""
+page_key() { printf '%s/index.html.bak-%s' "$1" "$2"; }
+env_backup_key() { printf '.env.bak-%s@%s' "$2" "$(page_key "$1" "$2")"; }
+env_written_key() { printf '.env@%s' "$(page_key "$1" "$2")"; }
+
+update_manifest() {
+  local drop="$1"
+  shift
   MANIFEST_TMP="$(mktemp "$PANEL_DIR/.subpage-backups.XXXXXXXXXX")"
   if [ -e "$MANIFEST" ] || [ -L "$MANIFEST" ]; then
-    if ! capture_file "$MANIFEST" "$MANIFEST_TMP"; then
+    MANIFEST_COPY="$(mktemp)"
+    if capture_file "$MANIFEST" "$MANIFEST_COPY"; then
+      awk -v page="$drop" '!(NF == 2 && ($2 == page || substr($2, length($2) - length(page)) == "@" page))' "$MANIFEST_COPY" > "$MANIFEST_TMP"
+    else
       warn "starting a new checksum list, because $MANIFEST could not be trusted: $CAPTURE_ERR"
-      : > "$MANIFEST_TMP"
     fi
+    rm -f "$MANIFEST_COPY"
+    MANIFEST_COPY=""
   fi
-  printf '%s  %s\n' "$hash" "$SUBDIR/${backup##*/}" >> "$MANIFEST_TMP"
+  [ $# -eq 0 ] || printf '%s\n' "$@" >> "$MANIFEST_TMP"
   chmod 600 "$MANIFEST_TMP"
   move_into_place "$MANIFEST_TMP" "$MANIFEST"
   MANIFEST_TMP=""
+}
+
+umask_for() {
+  case "$1" in ''|*[!0-7]*) return 1 ;; esac
+  printf '%03o' $(( 0777 & ~0$1 ))
+}
+
+kept_mode() { printf '%03o' $(( 0666 & 0$1 )); }
+
+write_new_file() {
+  local mask
+  mask="$(umask_for "$3")" || return 1
+  ( umask "$mask"; set -o noclobber; cat "$1" > "$2" ) 2>/dev/null
+}
+
+env_set() {
+  awk -v key="$1" -v val="$2" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      if (!done) { print key "=\"" val "\""; done = 1 }
+      next
+    }
+    { print }
+    END { if (!done) print key "=\"" val "\"" }
+  '
+}
+
+rewrite_env() {
+  if [ -n "$ADMIN" ]; then
+    env_set CUSTOM_TEMPLATES_DIRECTORY "$TPL_DIR/"
+  else
+    env_set CUSTOM_TEMPLATES_DIRECTORY "$TPL_DIR/" | env_set SUBSCRIPTION_PAGE_TEMPLATE "subscription/index.html"
+  fi
+}
+
+stamp_taken() {
+  local f
+  for f in "$TARGET.bak-$1" "$ENV_FILE.bak-$1"; do
+    if [ -e "$f" ] || [ -L "$f" ]; then return 0; fi
+  done
+  return 1
+}
+
+free_stamp() {
+  local tries=0
+  STAMP="$(date +%Y%m%d-%H%M%S)"
+  while stamp_taken "$STAMP"; do
+    tries=$((tries + 1))
+    [ "$tries" -le 5 ] || die "every backup name for the last few seconds is already taken (the newest tried was $TARGET.bak-$STAMP and $ENV_FILE.bak-$STAMP). Nothing was changed."
+    sleep 1
+    STAMP="$(date +%Y%m%d-%H%M%S)"
+  done
+}
+
+same_bytes_as() {
+  local copy
+  copy="$(mktemp)"
+  if capture_file "$1" "$copy" && [ "$(sha256_of "$copy")" = "$2" ]; then
+    rm -f "$copy"
+    return 0
+  fi
+  rm -f "$copy"
+  return 1
+}
+
+place_copy() {
+  local src="$1" dst="$2" mode="$3" made placed
+  COPY_TMP="$(mktemp -u "${dst%/*}/.subpage-copy.XXXXXXXXXX")"
+  write_new_file "$src" "$COPY_TMP" "$mode" || return 1
+  [ ! -e "$dst" ] && [ ! -L "$dst" ] || return 1
+  ln -n -P "$COPY_TMP" "$dst" 2>/dev/null || return 1
+  made="$(snapshot_of "$COPY_TMP")" || return 1
+  placed="$(snapshot_of "$dst")" || return 1
+  case "$made" in 'file|'*) ;; *) return 1 ;; esac
+  [ "$made" = "$placed" ] || return 1
+  rm -f "$COPY_TMP"
+  COPY_TMP=""
 }
 
 lock_holder() {
@@ -303,7 +382,13 @@ cleanup() {
   [ -z "${TMP:-}" ] || rm -f "$TMP"
   [ -z "$STAGE" ] || rm -f "$STAGE"
   [ -z "$ENV_TMP" ] || rm -f "$ENV_TMP"
+  [ -z "$ENV_ORIG" ] || rm -f "$ENV_ORIG"
+  [ -z "$ENV_WORK" ] || rm -f "$ENV_WORK"
+  [ -z "$ENV_NOW" ] || rm -f "$ENV_NOW"
   [ -z "$PAGE_TMP" ] || rm -f "$PAGE_TMP"
+  [ -z "$COPY_TMP" ] || rm -f "$COPY_TMP"
+  [ -z "$DISCARD_PAGE_BAK" ] || rm -f "$DISCARD_PAGE_BAK"
+  [ -z "$DISCARD_ENV_BAK" ] || rm -f "$DISCARD_ENV_BAK"
   [ -z "$MANIFEST_TMP" ] || rm -f "$MANIFEST_TMP"
   [ -z "$MANIFEST_COPY" ] || rm -f "$MANIFEST_COPY"
   release_lock
@@ -355,26 +440,69 @@ have none. Check that file yourself before you copy it over index.html by hand."
   if [ -n "$NEWEST_UNRECORDED" ]; then
     warn "skipping newer backups with no checksum on record; the newest of them was taken at $(stamp_text "${NEWEST_UNRECORDED#index.html.bak-}")"
   fi
-  EB=""
-  for name in $(backups_newest_first "$PANEL_DIR" .env.bak-); do EB="$PANEL_DIR/$name"; break; done
+  PAGE_RECORDED="$RECORDED"
+  B_STAMP="${B##*/index.html.bak-}"
+  EB="$ENV_FILE.bak-$B_STAMP"
+  recorded_hash "$(env_backup_key "$SUBDIR" "$B_STAMP")"
+  ENV_RECORDED="$RECORDED"
+  recorded_hash "$(env_written_key "$SUBDIR" "$B_STAMP")"
+  ENV_WRITTEN="$RECORDED"
   say "restoring $B"
   TMP="$(mktemp)"
   capture_file "$B" "$TMP" || die "refusing to restore $B: $CAPTURE_ERR"
-  [ "$(sha256_of "$TMP")" = "$RECORDED" ] \
+  [ "$(sha256_of "$TMP")" = "$PAGE_RECORDED" ] \
     || die "refusing to restore $B: its bytes do not match the checksum recorded when it was backed up"
-  if [ -n "$EB" ]; then
-    ENV_TMP="$(mktemp "$PANEL_DIR/.env.XXXXXXXXXX")"
-    capture_file "$EB" "$ENV_TMP" || die "refusing to restore $EB: $CAPTURE_ERR"
-    chmod "$CAPTURED_MODE" "$ENV_TMP"
+  ENV_KEPT=""
+  ENV_ALREADY=""
+  ENV_NOW_HASH=""
+  if [ -z "$ENV_RECORDED" ] || [ -z "$ENV_WRITTEN" ]; then
+    ENV_KEPT="no checksum for a .env backup was recorded together with this page backup (an older installer made it)"
+  else
+    ENV_NOW="$(mktemp)"
+    if ! capture_file "$ENV_FILE" "$ENV_NOW"; then
+      ENV_KEPT="it could not be compared with the .env that install wrote, because $CAPTURE_ERR"
+    else
+      ENV_NOW_HASH="$(sha256_of "$ENV_NOW")"
+      if [ "$ENV_NOW_HASH" = "$ENV_RECORDED" ]; then
+        ENV_ALREADY=1
+      elif [ "$ENV_NOW_HASH" != "$ENV_WRITTEN" ]; then
+        ENV_KEPT="it was changed after the install this rollback undoes, and restoring $EB would throw those changes away"
+      else
+        ENV_TMP="$(mktemp "$PANEL_DIR/.env.XXXXXXXXXX")"
+        if ! capture_file "$EB" "$ENV_TMP"; then
+          ENV_KEPT="refusing $EB, the .env backup taken with this page backup: $CAPTURE_ERR"
+        elif [ "$(sha256_of "$ENV_TMP")" != "$ENV_RECORDED" ]; then
+          ENV_KEPT="the bytes of $EB, the .env backup taken with this page backup, do not match the checksum recorded for it"
+        else
+          chmod "$CAPTURED_MODE" "$ENV_TMP"
+        fi
+        if [ -n "$ENV_KEPT" ]; then
+          rm -f "$ENV_TMP"
+          ENV_TMP=""
+        fi
+      fi
+    fi
+    rm -f "$ENV_NOW"
+    ENV_NOW=""
   fi
   new_stage
   ( set -o noclobber; cat "$TMP" > "$STAGE" ) || die "could not create a new file in $TPL_DIR/$SUBDIR"
   replace_target
   ok "restored $TARGET"
-  if [ -n "$EB" ]; then
+  if [ -z "$ENV_KEPT" ] && [ -z "$ENV_ALREADY" ] && ! same_bytes_as "$ENV_FILE" "$ENV_NOW_HASH"; then
+    ENV_KEPT="it changed while the page was being restored"
+    rm -f "$ENV_TMP"
+    ENV_TMP=""
+  fi
+  if [ -n "$ENV_ALREADY" ]; then
+    ok "$ENV_FILE already holds what it held before that install"
+  elif [ -z "$ENV_KEPT" ]; then
     move_into_place "$ENV_TMP" "$ENV_FILE"
     ENV_TMP=""
     ok "restored $ENV_FILE from $EB"
+  else
+    warn "left $ENV_FILE as it is: $ENV_KEPT.
+  No other .env backup is ever used in its place. Check $ENV_FILE by hand if the install you undid changed it."
   fi
   release_lock
   restart_panel
@@ -412,8 +540,13 @@ if [ "$DRY" = 1 ]; then
   plan "write $TARGET ($(wc -c < "$TMP") bytes, sha256 ${GOT:0:16}…)"
   plan "set CUSTOM_TEMPLATES_DIRECTORY=\"$TPL_DIR/\" in $ENV_FILE"
   [ -n "$ADMIN" ] || plan "set SUBSCRIPTION_PAGE_TEMPLATE=\"subscription/index.html\" in $ENV_FILE"
-  grep -nE '^[[:space:]]*(CUSTOM_TEMPLATES_DIRECTORY|SUBSCRIPTION_PAGE_TEMPLATE)[[:space:]]*=' "$ENV_FILE" \
-    | sed "s/^/${c_dim}  existing active line: /;s/$/${c_off}/" || true
+  ENV_ORIG="$(mktemp)"
+  if capture_file "$ENV_FILE" "$ENV_ORIG"; then
+    grep -nE '^[[:space:]]*(CUSTOM_TEMPLATES_DIRECTORY|SUBSCRIPTION_PAGE_TEMPLATE)[[:space:]]*=' "$ENV_ORIG" \
+      | sed "s/^/${c_dim}  existing active line: /;s/$/${c_off}/" || true
+  else
+    warn "a real run would refuse to edit $ENV_FILE: $CAPTURE_ERR"
+  fi
   plan "restart the panel"
   [ -n "$ADMIN" ] && plan "print the Subscription Template path for '$ADMIN'"
   exit 0
@@ -423,42 +556,75 @@ take_lock
 refuse_linked_dirs
 mkdir -p "$TPL_DIR/$SUBDIR"
 refuse_linked_dirs
+ENV_ORIG="$(mktemp)"
+capture_file "$ENV_FILE" "$ENV_ORIG" || die "refusing to edit $ENV_FILE: $CAPTURE_ERR.
+This installer reads .env once, as a single regular file, and writes the new one through a new
+file and a rename. Replace a link with the file it points at, or point --dir at the directory
+that holds the real .env, then run this again. Nothing was changed."
+ENV_MODE="$CAPTURED_MODE"
+ENV_HASH="$(sha256_of "$ENV_ORIG")"
+umask_for "$ENV_MODE" >/dev/null || die "could not read the permissions of $ENV_FILE. Nothing was changed."
+ENV_WORK="$(mktemp)"
+rewrite_env < "$ENV_ORIG" > "$ENV_WORK"
+ENV_NEW_HASH="$(sha256_of "$ENV_WORK")"
+DUPES="$(grep -cE '^[[:space:]]*CUSTOM_TEMPLATES_DIRECTORY[[:space:]]*=' "$ENV_WORK" || true)"
+free_stamp
 new_stage
 ( set -o noclobber; cat "$TMP" > "$STAGE" ) || die "could not create a new file in $TPL_DIR/$SUBDIR"
 BACKUP=""
+PAGE_HASH=""
 if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
-  BACKUP="$TARGET.bak-$(date +%Y%m%d-%H%M%S)"
-  ln -P "$TARGET" "$BACKUP" 2>/dev/null \
-    || die "could not keep the previous page as $BACKUP: something of that name is already there. Nothing was changed."
-  ok "kept the previous page at $BACKUP"
+  PAGE_TMP="$(mktemp)"
+  if capture_file "$TARGET" "$PAGE_TMP"; then
+    PAGE_HASH="$(sha256_of "$PAGE_TMP")"
+    place_copy "$PAGE_TMP" "$TARGET.bak-$STAMP" "$CAPTURED_MODE" \
+      || die "could not keep the previous page as $TARGET.bak-$STAMP: something of that name is already there, or it could not be written. Nothing was changed."
+    BACKUP="$TARGET.bak-$STAMP"
+    DISCARD_PAGE_BAK="$BACKUP"
+  else
+    warn "kept no backup of the previous $TARGET, because $CAPTURE_ERR; --rollback cannot bring it back"
+  fi
+  rm -f "$PAGE_TMP"
+  PAGE_TMP=""
+fi
+ENV_BAK="$ENV_FILE.bak-$STAMP"
+place_copy "$ENV_ORIG" "$ENV_BAK" "$ENV_MODE" \
+  || die "could not keep the current .env as $ENV_BAK: something of that name is already there, or it could not be written. Nothing was changed."
+DISCARD_ENV_BAK="$ENV_BAK"
+if [ -n "$BACKUP" ]; then
+  update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
+    "$PAGE_HASH  $(page_key "$SUBDIR" "$STAMP")" \
+    "$ENV_HASH  $(env_backup_key "$SUBDIR" "$STAMP")" \
+    "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
+  DISCARD_PAGE_BAK=""
+  DISCARD_ENV_BAK=""
+  ok "kept the previous page at $BACKUP and the previous .env at $ENV_BAK"
 fi
 replace_target
+DISCARD_ENV_BAK=""
 ok "installed $TARGET"
-[ -z "$BACKUP" ] || record_backup "$BACKUP"
+[ -n "$BACKUP" ] || ok "kept the previous .env at $ENV_BAK"
+if [ -n "$BACKUP" ]; then
+  PAGE_TMP="$(mktemp)"
+  if ! capture_file "$BACKUP" "$PAGE_TMP" || [ "$(sha256_of "$PAGE_TMP")" != "$PAGE_HASH" ]; then
+    update_manifest "$(page_key "$SUBDIR" "$STAMP")"
+    warn "$BACKUP changed after its checksum was recorded, so that record was removed and --rollback will skip it"
+  fi
+  rm -f "$PAGE_TMP"
+  PAGE_TMP=""
+fi
 
-set_env() {
-  local key="$1" val="$2" tmp
-  tmp="$(mktemp)"
-  awk -v key="$key" -v val="$val" '
-    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
-      if (!done) { print key "=\"" val "\""; done = 1 }
-      next
-    }
-    { print }
-    END { if (!done) print key "=\"" val "\"" }
-  ' "$ENV_FILE" > "$tmp"
-  chmod "$(mode_of "$ENV_FILE")" "$tmp"
-  mv -f "$tmp" "$ENV_FILE"
-}
+ENV_NOW="$(mktemp)"
+capture_file "$ENV_FILE" "$ENV_NOW" || die "left $ENV_FILE as it is, because $CAPTURE_ERR.
+The new page is live and the previous page and .env are kept; run this again to update $ENV_FILE."
+[ "$(sha256_of "$ENV_NOW")" = "$ENV_HASH" ] || die "left $ENV_FILE as it is, because it changed while the page was being installed.
+The new page is live and the previous page and .env are kept; run this again to update $ENV_FILE."
+ENV_TMP="$(mktemp -u "$PANEL_DIR/.env.XXXXXXXXXX")"
+write_new_file "$ENV_WORK" "$ENV_TMP" "$ENV_MODE" || die "could not create a new file in $PANEL_DIR; $ENV_FILE was left as it is"
+move_into_place "$ENV_TMP" "$ENV_FILE"
+ENV_TMP=""
+ok "updated $ENV_FILE (permissions kept at $(kept_mode "$ENV_MODE"))"
 
-BEFORE_MODE="$(mode_of "$ENV_FILE")"
-cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date +%Y%m%d-%H%M%S)"
-set_env CUSTOM_TEMPLATES_DIRECTORY "$TPL_DIR/"
-[ -n "$ADMIN" ] || set_env SUBSCRIPTION_PAGE_TEMPLATE "subscription/index.html"
-chmod "$BEFORE_MODE" "$ENV_FILE"
-ok "updated $ENV_FILE (permissions kept at $BEFORE_MODE)"
-
-DUPES="$(grep -cE '^[[:space:]]*CUSTOM_TEMPLATES_DIRECTORY[[:space:]]*=' "$ENV_FILE" || true)"
 [ "$DUPES" = 1 ] || warn "CUSTOM_TEMPLATES_DIRECTORY appears $DUPES times — check $ENV_FILE by hand"
 
 COMPOSE="$PANEL_DIR/docker-compose.yml"
