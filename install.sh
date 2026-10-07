@@ -476,10 +476,8 @@ have none. Check that file yourself before you copy it over index.html by hand."
   ENV_KEPT=""
   ENV_ALREADY=""
   ENV_NOW_HASH=""
-  if [ -z "$ENV_RECORDED" ] || [ -z "$ENV_WRITTEN" ]; then
+  if [ -z "$ENV_RECORDED" ]; then
     ENV_KEPT="no checksum for a .env backup was recorded together with this page backup (an older installer made it)"
-  elif [ -n "$LATER_ANY" ]; then
-    ENV_KEPT="a later install, at $(stamp_text "$LATER_ANY"), relies on it as it is"
   else
     ENV_NOW="$(mktemp)"
     if ! capture_file "$ENV_FILE" "$ENV_NOW"; then
@@ -488,6 +486,10 @@ have none. Check that file yourself before you copy it over index.html by hand."
       ENV_NOW_HASH="$(sha256_of "$ENV_NOW")"
       if [ "$ENV_NOW_HASH" = "$ENV_RECORDED" ]; then
         ENV_ALREADY=1
+      elif [ -n "$LATER_ANY" ]; then
+        ENV_KEPT="a later install, at $(stamp_text "$LATER_ANY"), relies on it as it is"
+      elif [ -z "$ENV_WRITTEN" ]; then
+        ENV_KEPT="no checksum for the .env that install wrote was recorded, so it cannot tell whether your .env still matches it"
       elif [ "$ENV_NOW_HASH" != "$ENV_WRITTEN" ]; then
         ENV_KEPT="it was changed after the install this rollback undoes, and restoring $EB would throw those changes away"
       else
@@ -616,17 +618,15 @@ ENV_BAK="$ENV_FILE.bak-$STAMP"
 place_copy "$ENV_ORIG" "$ENV_BAK" "$ENV_MODE" \
   || die "could not keep the current .env as $ENV_BAK: something of that name is already there, or it could not be written. Nothing was changed."
 DISCARD_ENV_BAK="$ENV_BAK"
+PAGE_RECORDED=""
 if [ -n "$BACKUP" ]; then
   update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
     "$PAGE_HASH  $(page_key "$SUBDIR" "$STAMP")" \
-    "$ENV_HASH  $(env_backup_key "$SUBDIR" "$STAMP")" \
-    "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
+    "$ENV_HASH  $(env_backup_key "$SUBDIR" "$STAMP")"
+  PAGE_RECORDED=1
   DISCARD_PAGE_BAK=""
   DISCARD_ENV_BAK=""
   ok "kept the previous page at $BACKUP and the previous .env at $ENV_BAK"
-else
-  update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
-    "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
 fi
 if [ -n "$BACKUP" ]; then
   PAGE_TMP="$(mktemp)"
@@ -648,8 +648,8 @@ ok "installed $TARGET"
 if [ -n "$BACKUP" ]; then
   PAGE_TMP="$(mktemp)"
   if ! capture_file "$BACKUP" "$PAGE_TMP" || [ "$(sha256_of "$PAGE_TMP")" != "$PAGE_HASH" ]; then
-    update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
-      "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
+    update_manifest "$(page_key "$SUBDIR" "$STAMP")"
+    PAGE_RECORDED=""
     warn "$BACKUP changed after its checksum was recorded, so that record was removed and --rollback will skip it"
   fi
   rm -f "$PAGE_TMP"
@@ -666,6 +666,15 @@ write_new_file "$ENV_WORK" "$ENV_TMP" "$ENV_MODE" && chmod "$ENV_MODE" "$ENV_TMP
   || die "could not create a new file in $PANEL_DIR; $ENV_FILE was left as it is"
 move_into_place "$ENV_TMP" "$ENV_FILE"
 ENV_TMP=""
+if [ "$PAGE_RECORDED" = 1 ]; then
+  update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
+    "$PAGE_HASH  $(page_key "$SUBDIR" "$STAMP")" \
+    "$ENV_HASH  $(env_backup_key "$SUBDIR" "$STAMP")" \
+    "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
+else
+  update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
+    "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
+fi
 ok "updated $ENV_FILE (permissions kept at $ENV_MODE)"
 
 [ "$DUPES" = 1 ] || warn "CUSTOM_TEMPLATES_DIRECTORY appears $DUPES times — check $ENV_FILE by hand"
