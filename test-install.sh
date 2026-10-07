@@ -212,7 +212,7 @@ if [ "${last##*/}" = ".subpage-backups.sha256" ] && [ -n "${MV_EDIT_PAGE:-}" ] &
   printf 'LIVE PAGE changed mid-install\n' > "$MV_EDIT_PAGE"
 fi
 case "${src##*/}" in
-  .env.*) [ "${last##*/}" = .env ] && [ "${MV_KILL_PRE_ENV:-}" = 1 ] && kill -9 "$PPID" ;;
+  .env.*) if [ "${last##*/}" = .env ] && [ "${MV_KILL_PRE_ENV:-}" = 1 ]; then kill -9 "$PPID"; exit 1; fi ;;
 esac
 /bin/mv "$@" || exit $?
 if [ "${last##*/}" = ".subpage-backups.sha256" ] && [ "${MV_KILL_MANIFEST:-}" = 1 ]; then kill -9 "$PPID"; fi
@@ -263,7 +263,21 @@ if [ -n "${DATE_SEQ:-}" ] && [ "$*" = "+%Y%m%d-%H%M%S" ]; then
 fi
 exec /bin/date "$@"
 EOF
-  chmod +x "$LC/bin/id" "$LC/bin/curl" "$LC/bin/stat" "$LC/bin/mv" "$LC/bin/date"
+  cat > "$LC/bin/cat" <<'EOF'
+#!/usr/bin/env bash
+if [ -n "${CAT_MODE_LOG:-}" ] && [ -n "${CAT_MODE_DIR:-}" ] && [ -f /dev/fd/1 ]; then
+  exec 9>&1
+  ino="$(/usr/bin/stat -L -c '%i' /dev/fd/9 2>/dev/null || /usr/bin/stat -L -f '%i' /dev/fd/9 2>/dev/null)"
+  exec 9>&-
+  for f in "$CAT_MODE_DIR"/.index.html.*; do
+    [ -f "$f" ] || continue
+    fm="$(/usr/bin/stat -c '%i %a' "$f" 2>/dev/null || /usr/bin/stat -f '%i %Lp' "$f" 2>/dev/null)"
+    [ "${fm%% *}" != "$ino" ] || printf '%s\n' "$fm" >> "$CAT_MODE_LOG"
+  done
+fi
+exec /bin/cat "$@"
+EOF
+  chmod +x "$LC/bin/id" "$LC/bin/curl" "$LC/bin/stat" "$LC/bin/mv" "$LC/bin/date" "$LC/bin/cat"
 }
 
 install_gnu_stat_shim() {
@@ -984,7 +998,12 @@ link_case rollback-keeps-page-mode
 chmod 600 "$LC/tpl/subscription/index.html"
 run_linked
 bak="$(newest_page_backup)"
-run_linked --rollback
+run_seamed "CAT_MODE_DIR=$LC/tpl/subscription CAT_MODE_LOG=$LC/private/cat-modes" --rollback
+created_mode="$(awk '{ m = $2 } END { print m }' "$LC/private/cat-modes" 2>/dev/null)"
+lexpect "$([ "$LRC" -eq 0 ] && [ "$(lmode "$bak")" = 600 ] && [ "$(lmode "$LC/tpl/subscription/index.html")" = 600 ] && echo 1)" \
+  "rollback restores the page with the 0600 mode it had before the install, not a widened one (backup $(lmode "$bak"), live $(lmode "$LC/tpl/subscription/index.html"))"
+lexpect "$([ "$created_mode" = 600 ] && echo 1)" \
+  "rollback creates the staged page at 0600 from the start, so it is never readable wider even before the rename (created ${created_mode:-unseen})"
 lexpect "$([ "$LRC" -eq 0 ] && [ "$(lmode "$bak")" = 600 ] && [ "$(lmode "$LC/tpl/subscription/index.html")" = 600 ] && echo 1)" \
   "rollback restores the page with the 0600 mode it had before the install, not a widened one (backup $(lmode "$bak"), live $(lmode "$LC/tpl/subscription/index.html"))"
 
@@ -1055,6 +1074,21 @@ for boundary in MV_KILL_MANIFEST MV_KILL MV_KILL_PRE_ENV MV_KILL_ENV; do
     p0="$(lsha "$LC/tpl/subscription/index.html")"
     run_seamed "MV_STAGE_TO=$LC/tpl/subscription/index.html $boundary=1"
     killed_rc=$LRC
+    pb="$(newest_page_backup)"
+    s="${pb##*index.html.bak-}"
+    at_page="$(lsha "$LC/tpl/subscription/index.html")"
+    at_env="$(lsha "$LC/panel/.env")"
+    at_marker=0
+    [ -z "$(manifest_hash ".env@subscription/index.html.bak-$s")" ] || at_marker=1
+    new_page="$(lsha "$LINKPAGE")"
+    case "$boundary" in
+      MV_KILL_MANIFEST) ok_state="$([ "$at_page" = "$p0" ] && [ "$at_env" = "$e0" ] && [ "$at_marker" = 0 ] && echo 1)" ;;
+      MV_KILL) ok_state="$([ "$at_page" = "$new_page" ] && [ "$at_env" = "$e0" ] && [ "$at_marker" = 0 ] && echo 1)" ;;
+      MV_KILL_PRE_ENV) ok_state="$([ "$at_page" = "$new_page" ] && [ "$at_env" = "$e0" ] && [ "$at_marker" = 1 ] && echo 1)" ;;
+      MV_KILL_ENV) ok_state="$([ "$at_page" = "$new_page" ] && [ "$at_env" != "$e0" ] && [ "$at_marker" = 1 ] && echo 1)" ;;
+    esac
+    lexpect "$([ "$killed_rc" -ne 0 ] && [ "$ok_state" = 1 ] && echo 1)" \
+      "killed at $boundary: the kill landed exactly at that step (page $([ "$at_page" = "$p0" ] && echo old || echo new), .env $([ "$at_env" = "$e0" ] && echo old || echo new), .env record $at_marker, install $killed_rc)"
     if [ "$next_step" = rollback ]; then
       run_linked --rollback
       lexpect "$([ "$killed_rc" -ne 0 ] && [ "$LRC" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$p0" ] \
