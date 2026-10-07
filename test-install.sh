@@ -859,6 +859,16 @@ lexpect "$([ "$LRC" -eq 0 ] && grep -qx 'LIVE PAGE edited by hand' "$LC/tpl/subs
   && [ "$(lsha "$LC/panel/.env")" = "$edited_sha" ] && printf '%s' "$LOUT" | grep -qF "left $LC/panel/.env as it is" && echo 1)" \
   ".env edited while the install replaces the page: rollback restores the page that install replaced and keeps the edit (exit $LRC)"
 
+link_case marker-only-on-complete
+printf 'A=1\n' > "$LC/panel/.env"
+run_seamed "MV_STAGE_TO=$LC/tpl/subscription/index.html MV_EDIT_ENV=$LC/panel/.env"
+died_rc=$LRC
+pb="$(newest_page_backup)"
+s="${pb##*index.html.bak-}"
+lexpect "$([ "$died_rc" -ne 0 ] && [ -n "$(manifest_hash "subscription/index.html.bak-$s")" ] \
+  && [ -z "$(manifest_hash ".env@subscription/index.html.bak-$s")" ] && echo 1)" \
+  "an install that dies at the .env step keeps its page-backup record but writes no completed-install marker (exit $died_rc: $(tr '\n' ' ' < "$LC/panel/.subpage-backups.sha256"))"
+
 link_case env-unchanged-since-install
 printf 'A=1\nORIGINAL_ENV=1\n' > "$LC/panel/.env"
 orig_env_sha="$(lsha "$LC/panel/.env")"
