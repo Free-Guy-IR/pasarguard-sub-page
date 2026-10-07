@@ -976,6 +976,14 @@ lexpect "$([ "$LRC" -eq 0 ] && [ "$(lmode "$LC/panel/.env")" = 755 ] && printf '
 lexpect "$([ "$(lmode "$(newest_env_backup)")" = 755 ] && echo 1)" \
   "the .env backup also keeps 0755 ($(lmode "$(newest_env_backup)"))"
 
+link_case rollback-keeps-page-mode
+chmod 600 "$LC/tpl/subscription/index.html"
+run_linked
+bak="$(newest_page_backup)"
+run_linked --rollback
+lexpect "$([ "$LRC" -eq 0 ] && [ "$(lmode "$bak")" = 600 ] && [ "$(lmode "$LC/tpl/subscription/index.html")" = 600 ] && echo 1)" \
+  "rollback restores the page with the 0600 mode it had before the install, not a widened one (backup $(lmode "$bak"), live $(lmode "$LC/tpl/subscription/index.html"))"
+
 echo
 echo "a per-admin install prints a rollback command scoped to that admin"
 
