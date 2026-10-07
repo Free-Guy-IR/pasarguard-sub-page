@@ -664,8 +664,6 @@ The new page is live and the previous page and .env are kept; run this again to 
 ENV_TMP="$(mktemp -u "$PANEL_DIR/.env.XXXXXXXXXX")"
 write_new_file "$ENV_WORK" "$ENV_TMP" "$ENV_MODE" && chmod "$ENV_MODE" "$ENV_TMP" \
   || die "could not create a new file in $PANEL_DIR; $ENV_FILE was left as it is"
-move_into_place "$ENV_TMP" "$ENV_FILE"
-ENV_TMP=""
 if [ "$PAGE_RECORDED" = 1 ]; then
   update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
     "$PAGE_HASH  $(page_key "$SUBDIR" "$STAMP")" \
@@ -675,6 +673,8 @@ else
   update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
     "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
 fi
+move_into_place "$ENV_TMP" "$ENV_FILE"
+ENV_TMP=""
 ok "updated $ENV_FILE (permissions kept at $ENV_MODE)"
 
 [ "$DUPES" = 1 ] || warn "CUSTOM_TEMPLATES_DIRECTORY appears $DUPES times — check $ENV_FILE by hand"
