@@ -211,7 +211,11 @@ if [ "${last##*/}" = ".subpage-backups.sha256" ] && [ -n "${MV_EDIT_PAGE:-}" ] &
   : > "$MV_EDIT_PAGE.done"
   printf 'LIVE PAGE changed mid-install\n' > "$MV_EDIT_PAGE"
 fi
+case "${src##*/}" in
+  .env.*) [ "${last##*/}" = .env ] && [ "${MV_KILL_PRE_ENV:-}" = 1 ] && kill -9 "$PPID" ;;
+esac
 /bin/mv "$@" || exit $?
+if [ "${last##*/}" = ".subpage-backups.sha256" ] && [ "${MV_KILL_MANIFEST:-}" = 1 ]; then kill -9 "$PPID"; fi
 if [ "$staged" = 1 ] && [ -n "${MV_TAMPER:-}" ] && [ ! -e "$MV_TAMPER" ]; then
   : > "$MV_TAMPER"
   newest="$(ls -1 "${last%/*}"/index.html.bak-* | sort | tail -n1)"
@@ -1024,6 +1028,47 @@ run_linked
 run_linked --rollback
 lexpect "$([ "$LRC" -eq 0 ] && printf '%s' "$LOUT" | grep -q 'installed again at' && echo 1)" \
   "when the newest install kept no page backup, rollback warns that it is restoring an older page (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'installed again|restored' | head -n1))"
+
+echo
+echo "an install killed at any step boundary leaves a state that both a rollback and a rerun finish cleanly"
+
+manifest_consistent() {
+  local h k f bad=0
+  [ -f "$LC/panel/.subpage-backups.sha256" ] || return 0
+  while read -r h k; do
+    case "$k" in
+      .env@*) continue ;;
+      .env.bak-*@*) f="$LC/panel/${k%%@*}" ;;
+      */index.html.bak-*) f="$LC/tpl/$k" ;;
+      *) bad=1; continue ;;
+    esac
+    if [ ! -f "$f" ] || [ "$(lsha "$f")" != "$h" ]; then bad=1; fi
+  done < "$LC/panel/.subpage-backups.sha256"
+  return $bad
+}
+
+for boundary in MV_KILL_MANIFEST MV_KILL MV_KILL_PRE_ENV MV_KILL_ENV; do
+  for next_step in rollback rerun; do
+    link_case "kill-$boundary-$next_step"
+    printf 'A=1\n' > "$LC/panel/.env"
+    e0="$(lsha "$LC/panel/.env")"
+    p0="$(lsha "$LC/tpl/subscription/index.html")"
+    run_seamed "MV_STAGE_TO=$LC/tpl/subscription/index.html $boundary=1"
+    killed_rc=$LRC
+    if [ "$next_step" = rollback ]; then
+      run_linked --rollback
+      lexpect "$([ "$killed_rc" -ne 0 ] && [ "$LRC" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$p0" ] \
+        && [ "$(lsha "$LC/panel/.env")" = "$e0" ] && manifest_consistent && [ ! -e "$LC/panel/.subpage-install.lock" ] && echo 1)" \
+        "killed at $boundary, then rollback: the page and .env are exactly what they were before that install, and every record matches its file (install $killed_rc, rollback $LRC: $(printf '%s' "$LOUT" | grep -E 'restored|left|already|refusing' | tail -n1 | LC_ALL=C tr -c ' -~' '?'))"
+    else
+      run_linked
+      lexpect "$([ "$killed_rc" -ne 0 ] && [ "$LRC" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$(lsha "$LINKPAGE")" ] \
+        && grep -qxF "CUSTOM_TEMPLATES_DIRECTORY=\"$LC/tpl/\"" "$LC/panel/.env" && grep -qxF 'SUBSCRIPTION_PAGE_TEMPLATE="subscription/index.html"' "$LC/panel/.env" \
+        && manifest_consistent && [ ! -e "$LC/panel/.subpage-install.lock" ] && echo 1)" \
+        "killed at $boundary, then a rerun: the install completes, .env carries both settings, and every record matches its file (install $killed_rc, rerun $LRC: $(printf '%s' "$LOUT" | grep -E 'installed|refusing|left|lock' | tail -n1 | LC_ALL=C tr -c ' -~' '?'))"
+    fi
+  done
+done
 
 rm -rf "$LINKWORK"
 fi
