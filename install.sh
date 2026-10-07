@@ -512,8 +512,8 @@ have none. Check that file yourself before you copy it over index.html by hand."
     ENV_NOW=""
   fi
   new_stage
-  ( set -o noclobber; cat "$TMP" > "$STAGE" ) || die "could not create a new file in $TPL_DIR/$SUBDIR"
-  chmod "$PAGE_BAK_MODE" "$STAGE"
+  write_new_file "$TMP" "$STAGE" "$PAGE_BAK_MODE" && chmod "$PAGE_BAK_MODE" "$STAGE" \
+    || die "could not create a new file with the backup's permissions in $TPL_DIR/$SUBDIR; $TARGET was left as it is"
   replace_target
   ok "restored $TARGET"
   if [ -z "$ENV_KEPT" ] && [ -z "$ENV_ALREADY" ] && ! same_bytes_as "$ENV_FILE" "$ENV_NOW_HASH"; then
