@@ -473,6 +473,7 @@ have none. Check that file yourself before you copy it over index.html by hand."
   capture_file "$B" "$TMP" || die "refusing to restore $B: $CAPTURE_ERR"
   [ "$(sha256_of "$TMP")" = "$PAGE_RECORDED" ] \
     || die "refusing to restore $B: its bytes do not match the checksum recorded when it was backed up"
+  PAGE_BAK_MODE="$CAPTURED_MODE"
   ENV_KEPT=""
   ENV_ALREADY=""
   ENV_NOW_HASH=""
@@ -512,6 +513,7 @@ have none. Check that file yourself before you copy it over index.html by hand."
   fi
   new_stage
   ( set -o noclobber; cat "$TMP" > "$STAGE" ) || die "could not create a new file in $TPL_DIR/$SUBDIR"
+  chmod "$PAGE_BAK_MODE" "$STAGE"
   replace_target
   ok "restored $TARGET"
   if [ -z "$ENV_KEPT" ] && [ -z "$ENV_ALREADY" ] && ! same_bytes_as "$ENV_FILE" "$ENV_NOW_HASH"; then
