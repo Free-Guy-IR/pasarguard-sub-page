@@ -287,16 +287,31 @@ follow=""
 if [ "$1" = "-L" ]; then follow="-L"; shift; fi
 if [ "$1" = "-c" ]; then
   fmt="$2"; path="$3"
-  ft="$(/usr/bin/stat $follow -f '%HT' "$path" 2>/dev/null)" || exit 1
-  ino="$(/usr/bin/stat $follow -f '%i' "$path" 2>/dev/null)"
-  sz="$(/usr/bin/stat $follow -f '%z' "$path" 2>/dev/null)"
-  lnk="$(/usr/bin/stat $follow -f '%l' "$path" 2>/dev/null)"
-  mode="$(/usr/bin/stat $follow -f '%Lp' "$path" 2>/dev/null)"
-  case "$ft" in
-    'Regular File') c='regular file'; loc='reguläre Datei' ;;
-    'Symbolic Link') c='symbolic link'; loc='symbolische Verknüpfung' ;;
-    'Directory') c='directory'; loc='Verzeichnis' ;;
-    *) c="$ft"; loc="$ft" ;;
+  if all="$(LC_ALL=C /usr/bin/stat $follow -c '%F|%i|%s|%h|%a' "$path" 2>/dev/null)"; then
+    c="${all%%|*}"
+    rest="${all#*|}"
+    ino="${rest%%|*}"; rest="${rest#*|}"
+    sz="${rest%%|*}"; rest="${rest#*|}"
+    lnk="${rest%%|*}"; mode="${rest#*|}"
+  else
+    ft="$(LC_ALL=C /usr/bin/stat $follow -f '%HT' "$path" 2>/dev/null)" || exit 1
+    ino="$(/usr/bin/stat $follow -f '%i' "$path" 2>/dev/null)"
+    sz="$(/usr/bin/stat $follow -f '%z' "$path" 2>/dev/null)"
+    lnk="$(/usr/bin/stat $follow -f '%l' "$path" 2>/dev/null)"
+    mode="$(/usr/bin/stat $follow -f '%Lp' "$path" 2>/dev/null)"
+    case "$ft" in
+      'Regular File') c='regular file' ;;
+      'Symbolic Link') c='symbolic link' ;;
+      'Directory') c='directory' ;;
+      *) c="$ft" ;;
+    esac
+  fi
+  case "$c" in
+    'regular file') loc='reguläre Datei' ;;
+    'regular empty file') loc='reguläre leere Datei' ;;
+    'symbolic link') loc='symbolische Verknüpfung' ;;
+    'directory') loc='Verzeichnis' ;;
+    *) loc="$c" ;;
   esac
   if [ "${LC_ALL:-}" = C ] || [ "${LC_ALL:-}" = POSIX ]; then F="$c"
   elif [ -n "${STAT_LOCALIZED:-}" ]; then F="$loc"
