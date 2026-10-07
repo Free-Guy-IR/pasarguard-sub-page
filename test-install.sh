@@ -207,6 +207,10 @@ if [ "$staged" = 1 ] && [ -n "${MV_FAIL_ONCE:-}" ] && [ ! -e "$MV_FAIL_ONCE" ]; 
   : > "$MV_FAIL_ONCE"
   exit 1
 fi
+if [ "${last##*/}" = ".subpage-backups.sha256" ] && [ -n "${MV_EDIT_PAGE:-}" ] && [ ! -e "$MV_EDIT_PAGE.done" ]; then
+  : > "$MV_EDIT_PAGE.done"
+  printf 'LIVE PAGE changed mid-install\n' > "$MV_EDIT_PAGE"
+fi
 /bin/mv "$@" || exit $?
 if [ "$staged" = 1 ] && [ -n "${MV_TAMPER:-}" ] && [ ! -e "$MV_TAMPER" ]; then
   : > "$MV_TAMPER"
@@ -253,6 +257,41 @@ fi
 exec /bin/date "$@"
 EOF
   chmod +x "$LC/bin/id" "$LC/bin/curl" "$LC/bin/stat" "$LC/bin/mv" "$LC/bin/date"
+}
+
+install_gnu_stat_shim() {
+  cat > "$LC/bin/stat" <<'EOF'
+#!/usr/bin/env bash
+follow=""
+if [ "$1" = "-L" ]; then follow="-L"; shift; fi
+if [ "$1" = "-c" ]; then
+  fmt="$2"; path="$3"
+  ft="$(/usr/bin/stat $follow -f '%HT' "$path" 2>/dev/null)" || exit 1
+  ino="$(/usr/bin/stat $follow -f '%i' "$path" 2>/dev/null)"
+  sz="$(/usr/bin/stat $follow -f '%z' "$path" 2>/dev/null)"
+  lnk="$(/usr/bin/stat $follow -f '%l' "$path" 2>/dev/null)"
+  mode="$(/usr/bin/stat $follow -f '%Lp' "$path" 2>/dev/null)"
+  case "$ft" in
+    'Regular File') c='regular file'; loc='reguläre Datei' ;;
+    'Symbolic Link') c='symbolic link'; loc='symbolische Verknüpfung' ;;
+    'Directory') c='directory'; loc='Verzeichnis' ;;
+    *) c="$ft"; loc="$ft" ;;
+  esac
+  if [ "${LC_ALL:-}" = C ] || [ "${LC_ALL:-}" = POSIX ]; then F="$c"
+  elif [ -n "${STAT_LOCALIZED:-}" ]; then F="$loc"
+  else F="$c"; fi
+  out="$fmt"
+  out="${out//%F/$F}"
+  out="${out//%i/$ino}"
+  out="${out//%s/$sz}"
+  out="${out//%h/$lnk}"
+  out="${out//%a/$mode}"
+  printf '%s\n' "$out"
+  exit 0
+fi
+exec /usr/bin/stat "$@"
+EOF
+  chmod +x "$LC/bin/stat"
 }
 
 run_linked() {
@@ -772,8 +811,9 @@ lexpect "$([ -e "$LC/mvstate/tampered" ] && grep -q 'TAMPERED AFTER RECORD' "$ta
   "a backup rewritten between the record and the replace: the seam rewrote ${tampered_bak##*/}"
 lexpect "$([ -z "$(manifest_hash "subscription/${tampered_bak##*/}")" ] && printf '%s' "$tampered_out" | grep -q 'changed after its checksum was recorded' && echo 1)" \
   "a backup rewritten between the record and the replace: the install notices, warns and drops its record ($(printf '%s' "$tampered_out" | grep -E 'changed|recorded' | head -n1))"
-lexpect "$(! grep -qF "@subscription/${tampered_bak##*/}" "$LC/panel/.subpage-backups.sha256" && echo 1)" \
-  "a backup rewritten between the record and the replace: the .env records paired with it are dropped too ($(tr '\n' ' ' < "$LC/panel/.subpage-backups.sha256"))"
+lexpect "$([ -z "$(manifest_hash "subscription/${tampered_bak##*/}")" ] && [ -z "$(manifest_hash ".env.bak-${tampered_bak##*index.html.bak-}@subscription/${tampered_bak##*/}")" ] \
+  && [ -n "$(manifest_hash ".env@subscription/${tampered_bak##*/}")" ] && echo 1)" \
+  "a backup rewritten between the record and the replace: its page and .env-backup records go, but the marker that this install changed .env stays ($(tr '\n' ' ' < "$LC/panel/.subpage-backups.sha256"))"
 lexpect "$(! grep -q 'TAMPERED' "$LC/tpl/subscription/index.html" && echo 1)" \
   "a backup rewritten between the record and the replace: rollback never puts those bytes live (exit $LRC)"
 
@@ -866,6 +906,89 @@ lexpect "$([ "$third_rc" -eq 0 ] && [ -f "$LC/tpl/subscription/index.html.bak-20
   && [ "$(lsha "$LC/panel/.env.bak-20300101-000002")" = "$env_before_second" ] \
   && [ "$(manifest_hash ".env.bak-20300101-000002@subscription/index.html.bak-20300101-000002")" = "$env_before_second" ] && echo 1)" \
   "a third install whose second is taken waits for the next one and keeps its own paired backups (exit $third_rc)"
+
+echo
+echo "the installer reads a GNU stat under LC_ALL=C, so a localized file-type word never fools it"
+
+link_case gnu-locale-c
+install_gnu_stat_shim
+run_seamed "STAT_LOCALIZED=1 LANG=de_DE.UTF-8"
+lexpect "$([ "$LRC" -eq 0 ] && [ "$(lsha "$LC/tpl/subscription/index.html")" = "$(lsha "$LINKPAGE")" ] && echo 1)" \
+  "a GNU host whose stat says 'reguläre Datei' in a German locale still installs, because the installer pins LC_ALL=C (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'installed|refusing|regular' | head -n1))"
+
+link_case gnu-locale-proof
+install_gnu_stat_shim
+LOUT="$(env -i HOME="$LC" PATH="$LC/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$LC/private" \
+  TPL_DIR="$LC/tpl" FAKE_PAGE="$LINKPAGE" STAT_LOCALIZED=1 LANG=de_DE.UTF-8 \
+  bash -c 'LC_ALL= stat -c "%F" "$0"' "$LC/tpl/subscription/index.html" 2>&1)"
+lexpect "$([ "$LOUT" = 'reguläre Datei' ] && echo 1)" \
+  "the shim proves the hazard: without LC_ALL=C that stat returns a localized type ($LOUT)"
+
+echo
+echo "an in-place write to the page between the backup and the replace is never silently lost"
+
+link_case page-edited-mid-install
+run_seamed "MV_EDIT_PAGE=$LC/tpl/subscription/index.html"
+mid_rc=$LRC
+lexpect "$([ "$mid_rc" -ne 0 ] && printf '%s' "$LOUT" | grep -q 'changed after this run backed it up' && echo 1)" \
+  "the page edited between its backup and the replace: the install aborts instead of losing the edit (exit $mid_rc: $(printf '%s' "$LOUT" | grep -E 'left|changed|installed' | tail -n1))"
+lexpect "$(grep -qx 'LIVE PAGE changed mid-install' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "the page edited between its backup and the replace: that edit is what is live, not an older page (live: $(head -c 40 "$LC/tpl/subscription/index.html" | tr '\n' ' '))"
+lexpect "$([ -z "$(ls "$LC/tpl/subscription"/index.html.bak-* 2>/dev/null)" ] && [ -z "$(ls "$LC/panel"/.env.bak-* 2>/dev/null)" ] && [ ! -s "$LC/panel/.subpage-backups.sha256" ] && echo 1)" \
+  "the page edited between its backup and the replace: the aborted run discarded its own backups and recorded nothing (tpl: $(ls -A "$LC/tpl/subscription" | tr '\n' ' '), panel: $(ls -A "$LC/panel" | tr '\n' ' '))"
+
+echo
+echo "the new .env keeps the exact mode of the one it replaces, and the message tells the truth"
+
+link_case env-mode-755
+printf 'A=1\n' > "$LC/panel/.env"
+chmod 755 "$LC/panel/.env"
+run_linked
+lexpect "$([ "$LRC" -eq 0 ] && [ "$(lmode "$LC/panel/.env")" = 755 ] && printf '%s' "$LOUT" | grep -qF 'permissions kept at 755' && echo 1)" \
+  "a 0755 .env stays 0755 after the install, and the installer says 755 (exit $LRC, mode $(lmode "$LC/panel/.env"): $(printf '%s' "$LOUT" | grep -E 'permissions' | head -n1))"
+lexpect "$([ "$(lmode "$(newest_env_backup)")" = 755 ] && echo 1)" \
+  "the .env backup also keeps 0755 ($(lmode "$(newest_env_backup)"))"
+
+echo
+echo "a per-admin install prints a rollback command scoped to that admin"
+
+link_case admin-rollback-hint
+mkdir -p "$LC/tpl/alice"
+printf 'LIVE PAGE alice\n' > "$LC/tpl/alice/index.html"
+run_linked --admin alice
+lexpect "$([ "$LRC" -eq 0 ] && printf '%s' "$LOUT" | grep -qF -- '--admin alice --rollback' && echo 1)" \
+  "the hint names the admin, so pasting it rolls back alice's page, not the panel-wide one (exit $LRC: $(printf '%s' "$LOUT" | grep -F -- '--rollback' | head -n1))"
+lexpect "$(bash "$SELF" --help 2>&1 | grep -qF -- '--admin NAME --rollback' && echo 1)" \
+  "the usage text documents --admin NAME --rollback"
+
+echo
+echo "a later install of another page is not undone by rolling back an earlier one"
+
+link_case later-install-protects-env
+printf 'A=1\n' > "$LC/panel/.env"
+mkdir -p "$LC/tpl/alice"
+printf 'LIVE PAGE alice old\n' > "$LC/tpl/alice/index.html"
+run_linked --admin alice
+alice_bak="$(ls "$LC/tpl/alice"/index.html.bak-* 2>/dev/null | head -n1)"
+run_linked
+env_after_subscription="$(lsha "$LC/panel/.env")"
+run_linked --admin alice --rollback
+lexpect "$([ "$LRC" -eq 0 ] && grep -qx 'LIVE PAGE alice old' "$LC/tpl/alice/index.html" && echo 1)" \
+  "alice's page is still rolled back (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'restored|refusing|left' | tail -n1))"
+lexpect "$([ "$(lsha "$LC/panel/.env")" = "$env_after_subscription" ] && grep -q '^CUSTOM_TEMPLATES_DIRECTORY=' "$LC/panel/.env" \
+  && printf '%s' "$LOUT" | grep -qF "left $LC/panel/.env as it is" && echo 1)" \
+  "rolling back alice leaves .env as the later panel-wide install needs it, with a warning ($(printf '%s' "$LOUT" | grep -E 'later|env' | tail -n1))"
+
+link_case rollback-warns-newer-unbacked-install
+printf 'A=1\n' > "$LC/panel/.env"
+run_linked
+run_linked
+rm "$LC/tpl/subscription/index.html"
+ln -s "$LC/host/secret" "$LC/tpl/subscription/index.html"
+run_linked
+run_linked --rollback
+lexpect "$([ "$LRC" -eq 0 ] && printf '%s' "$LOUT" | grep -q 'installed again at' && echo 1)" \
+  "when the newest install kept no page backup, rollback warns that it is restoring an older page (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'installed again|restored' | head -n1))"
 
 rm -rf "$LINKWORK"
 fi
