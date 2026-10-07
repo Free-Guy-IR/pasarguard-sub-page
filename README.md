@@ -41,6 +41,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Free-Guy-IR/pasarguard-sub-p
 
 It writes the template to `/var/lib/pasarguard/templates/subscription/index.html`, sets `CUSTOM_TEMPLATES_DIRECTORY` in the panel's `.env`, and restarts the panel.
 
+`install.sh` and `install.sh --rollback` take a lock so they never run over each other, and keep a checksummed backup of the page and the `.env` so a rollback restores exactly what was there. Let the installer be the only thing that writes the page and `.env`; a file hand-edited in the instant the installer is swapping it in is the one case it cannot protect.
+
 ### By hand
 
 ```bash
