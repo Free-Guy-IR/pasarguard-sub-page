@@ -219,6 +219,9 @@ if [ "$staged" = 1 ] && [ -n "${MV_TAMPER:-}" ] && [ ! -e "$MV_TAMPER" ]; then
 fi
 if [ "$staged" = 1 ] && [ -n "${MV_EDIT_ENV:-}" ]; then printf 'EDITED_MEANWHILE=1\n' >> "$MV_EDIT_ENV"; fi
 if [ "$staged" = 1 ] && [ "${MV_KILL:-}" = 1 ]; then kill -9 "$PPID"; fi
+case "${src##*/}" in
+  .env.*) [ "${last##*/}" = .env ] && [ "${MV_KILL_ENV:-}" = 1 ] && kill -9 "$PPID" ;;
+esac
 exit 0
 EOF
   cat > "$LC/bin/stat" <<'EOF'
@@ -859,7 +862,7 @@ lexpect "$([ "$LRC" -eq 0 ] && grep -qx 'LIVE PAGE edited by hand' "$LC/tpl/subs
   && [ "$(lsha "$LC/panel/.env")" = "$edited_sha" ] && printf '%s' "$LOUT" | grep -qF "left $LC/panel/.env as it is" && echo 1)" \
   ".env edited while the install replaces the page: rollback restores the page that install replaced and keeps the edit (exit $LRC)"
 
-link_case marker-only-on-complete
+link_case marker-not-written-before-env
 printf 'A=1\n' > "$LC/panel/.env"
 run_seamed "MV_STAGE_TO=$LC/tpl/subscription/index.html MV_EDIT_ENV=$LC/panel/.env"
 died_rc=$LRC
@@ -867,7 +870,21 @@ pb="$(newest_page_backup)"
 s="${pb##*index.html.bak-}"
 lexpect "$([ "$died_rc" -ne 0 ] && [ -n "$(manifest_hash "subscription/index.html.bak-$s")" ] \
   && [ -z "$(manifest_hash ".env@subscription/index.html.bak-$s")" ] && echo 1)" \
-  "an install that dies at the .env step keeps its page-backup record but writes no completed-install marker (exit $died_rc: $(tr '\n' ' ' < "$LC/panel/.subpage-backups.sha256"))"
+  "an install that stops before it writes .env records no marker claiming it changed .env (exit $died_rc: $(tr '\n' ' ' < "$LC/panel/.subpage-backups.sha256"))"
+
+link_case crash-after-env-keeps-marker
+printf 'A=1\n' > "$LC/panel/.env"
+mkdir -p "$LC/tpl/alice"
+printf 'LIVE PAGE alice\n' > "$LC/tpl/alice/index.html"
+run_linked --admin alice
+env_after_alice="$(lsha "$LC/panel/.env")"
+run_seamed "MV_KILL_ENV=1" --admin bob
+bob_rc=$LRC
+run_linked --admin alice --rollback
+lexpect "$([ "$bob_rc" -ne 0 ] && grep -q '^CUSTOM_TEMPLATES_DIRECTORY=' "$LC/panel/.env" && echo 1)" \
+  "a later install killed the instant after it changed .env still left a marker, so an earlier admin's rollback does not strip the shared .env (bob $bob_rc, exit $LRC: $(printf '%s' "$LOUT" | grep -E 'later|restored|left' | tail -n1))"
+lexpect "$([ "$LRC" -eq 0 ] && grep -qx 'LIVE PAGE alice' "$LC/tpl/alice/index.html" && echo 1)" \
+  "a later install killed the instant after it changed .env: alice's page is still rolled back (exit $LRC)"
 
 link_case env-unchanged-since-install
 printf 'A=1\nORIGINAL_ENV=1\n' > "$LC/panel/.env"
