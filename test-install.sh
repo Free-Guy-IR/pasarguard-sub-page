@@ -1019,8 +1019,6 @@ lexpect "$([ "$LRC" -eq 0 ] && [ "$(lmode "$bak")" = 600 ] && [ "$(lmode "$LC/tp
   "rollback restores the page with the 0600 mode it had before the install, not a widened one (backup $(lmode "$bak"), live $(lmode "$LC/tpl/subscription/index.html"))"
 lexpect "$([ "$created_mode" = 600 ] && echo 1)" \
   "rollback creates the staged page at 0600 from the start, so it is never readable wider even before the rename (created ${created_mode:-unseen})"
-lexpect "$([ "$LRC" -eq 0 ] && [ "$(lmode "$bak")" = 600 ] && [ "$(lmode "$LC/tpl/subscription/index.html")" = 600 ] && echo 1)" \
-  "rollback restores the page with the 0600 mode it had before the install, not a widened one (backup $(lmode "$bak"), live $(lmode "$LC/tpl/subscription/index.html"))"
 
 echo
 echo "a per-admin install prints a rollback command scoped to that admin"
