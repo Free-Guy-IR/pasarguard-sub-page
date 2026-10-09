@@ -230,6 +230,7 @@ move_into_place() {
 page_key() { printf '%s/index.html.bak-%s' "$1" "$2"; }
 env_backup_key() { printf '.env.bak-%s@%s' "$2" "$(page_key "$1" "$2")"; }
 env_written_key() { printf '.env@%s' "$(page_key "$1" "$2")"; }
+installed_key() { printf 'index.html@%s' "$(page_key "$1" "$2")"; }
 
 newest_install_after() {
   [ -n "$MANIFEST_COPY" ] || return 0
@@ -337,6 +338,20 @@ place_copy() {
   [ "$made" = "$placed" ] || return 1
   rm -f "$COPY_TMP"
   COPY_TMP=""
+}
+
+keep_live_page() {
+  local src="$1" mode="$2" tries=0 stamp
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  while ! place_copy "$src" "$TARGET.before-rollback-$stamp" "$mode"; do
+    [ -z "$COPY_TMP" ] || rm -f "$COPY_TMP"
+    COPY_TMP=""
+    tries=$((tries + 1))
+    [ "$tries" -le 5 ] || die "could not keep a copy of $TARGET, which differs from the page that install put live: every name tried for it is taken or could not be written. Nothing was changed."
+    sleep 1
+    stamp="$(date +%Y%m%d-%H%M%S)"
+  done
+  KEPT_PAGE="$TARGET.before-rollback-$stamp"
 }
 
 lock_holder() {
@@ -463,6 +478,8 @@ have none. Check that file yourself before you copy it over index.html by hand."
   ENV_RECORDED="$RECORDED"
   recorded_hash "$(env_written_key "$SUBDIR" "$B_STAMP")"
   ENV_WRITTEN="$RECORDED"
+  recorded_hash "$(installed_key "$SUBDIR" "$B_STAMP")"
+  INSTALLED_HASH="$RECORDED"
   LATER_HERE="$(newest_install_after "$B_STAMP" "$SUBDIR")"
   LATER_ANY="$(newest_install_after "$B_STAMP" "")"
   if [ -n "$LATER_HERE" ]; then
@@ -474,6 +491,20 @@ have none. Check that file yourself before you copy it over index.html by hand."
   [ "$(sha256_of "$TMP")" = "$PAGE_RECORDED" ] \
     || die "refusing to restore $B: its bytes do not match the checksum recorded when it was backed up"
   PAGE_BAK_MODE="$CAPTURED_MODE"
+  KEPT_PAGE=""
+  if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
+    PAGE_TMP="$(mktemp)"
+    if capture_file "$TARGET" "$PAGE_TMP"; then
+      LIVE_HASH="$(sha256_of "$PAGE_TMP")"
+      if [ "$LIVE_HASH" != "$PAGE_RECORDED" ] && [ "$LIVE_HASH" != "$INSTALLED_HASH" ]; then
+        keep_live_page "$PAGE_TMP" "$CAPTURED_MODE"
+      fi
+    else
+      warn "kept no copy of the current $TARGET, because $CAPTURE_ERR; rollback replaces only that name, never what it points at"
+    fi
+    rm -f "$PAGE_TMP"
+    PAGE_TMP=""
+  fi
   ENV_KEPT=""
   ENV_ALREADY=""
   ENV_NOW_HASH=""
@@ -516,6 +547,7 @@ have none. Check that file yourself before you copy it over index.html by hand."
     || die "could not create a new file with the backup's permissions in $TPL_DIR/$SUBDIR; $TARGET was left as it is"
   replace_target
   ok "restored $TARGET"
+  [ -z "$KEPT_PAGE" ] || ok "kept the page that was live, which differed from the one that install put there, at $KEPT_PAGE"
   if [ -z "$ENV_KEPT" ] && [ -z "$ENV_ALREADY" ] && ! same_bytes_as "$ENV_FILE" "$ENV_NOW_HASH"; then
     ENV_KEPT="it changed while the page was being restored"
     rm -f "$ENV_TMP"
@@ -624,7 +656,8 @@ PAGE_RECORDED=""
 if [ -n "$BACKUP" ]; then
   update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
     "$PAGE_HASH  $(page_key "$SUBDIR" "$STAMP")" \
-    "$ENV_HASH  $(env_backup_key "$SUBDIR" "$STAMP")"
+    "$ENV_HASH  $(env_backup_key "$SUBDIR" "$STAMP")" \
+    "$GOT  $(installed_key "$SUBDIR" "$STAMP")"
   PAGE_RECORDED=1
   DISCARD_PAGE_BAK=""
   DISCARD_ENV_BAK=""
@@ -670,6 +703,7 @@ if [ "$PAGE_RECORDED" = 1 ]; then
   update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
     "$PAGE_HASH  $(page_key "$SUBDIR" "$STAMP")" \
     "$ENV_HASH  $(env_backup_key "$SUBDIR" "$STAMP")" \
+    "$GOT  $(installed_key "$SUBDIR" "$STAMP")" \
     "$ENV_NEW_HASH  $(env_written_key "$SUBDIR" "$STAMP")"
 else
   update_manifest "$(page_key "$SUBDIR" "$STAMP")" \
