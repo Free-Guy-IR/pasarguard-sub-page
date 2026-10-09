@@ -43,6 +43,10 @@ It writes the template to `/var/lib/pasarguard/templates/subscription/index.html
 
 `install.sh` and `install.sh --rollback` take a lock so they never run over each other, and keep a checksummed backup of the page and the `.env` so a rollback restores exactly what was there. Let the installer be the only thing that writes the page and `.env`; a file hand-edited in the instant the installer is swapping it in is the one case it cannot protect.
 
+If you edited the page by hand after an install, `--rollback` first keeps your version next to it as `index.html.before-rollback-<time>`, with the same permissions, and prints that path. A later rollback never restores that copy; it is there for you to take back by hand.
+
+Accepted risk: someone who can already write to the templates directory can swap the page for a named pipe at the instant the installer opens it, and the installer then waits forever while holding its lock (`.subpage-install.lock` in the panel directory). Such a person can already replace the page outright, so this grants nothing new. If the installer ever hangs, stop it and remove that lock directory.
+
 ### By hand
 
 ```bash
