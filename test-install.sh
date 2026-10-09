@@ -1070,6 +1070,7 @@ manifest_consistent() {
   while read -r h k; do
     case "$k" in
       .env@*) continue ;;
+      index.html@*) continue ;;
       .env.bak-*@*) f="$LC/panel/${k%%@*}" ;;
       */index.html.bak-*) f="$LC/tpl/$k" ;;
       *) bad=1; continue ;;
@@ -1116,6 +1117,39 @@ for boundary in MV_KILL_MANIFEST MV_KILL MV_KILL_PRE_ENV MV_KILL_ENV; do
     fi
   done
 done
+
+echo
+echo "rollback keeps a copy of a page customised after the install"
+
+link_case rollback-keeps-customised-page
+run_linked
+printf 'CUSTOMISED BY HAND\n' > "$LC/tpl/subscription/index.html"
+chmod 640 "$LC/tpl/subscription/index.html"
+run_linked --rollback
+kept="$(ls -1 "$LC/tpl/subscription"/index.html.before-rollback-* 2>/dev/null | head -n1)"
+lexpect "$([ "$LRC" -eq 0 ] && grep -qx 'LIVE PAGE rollback-keeps-customised-page' "$LC/tpl/subscription/index.html" && echo 1)" \
+  "a page customised after the install: rollback still restores the backup (exit $LRC)"
+lexpect "$([ -n "$kept" ] && grep -qx 'CUSTOMISED BY HAND' "$kept" && [ "$(lmode "$kept")" = 640 ] && printf '%s' "$LOUT" | grep -qF "$kept" && echo 1)" \
+  "a page customised after the install: rollback keeps it with its mode and says where (kept: ${kept##*/})"
+run_linked --rollback
+lexpect "$([ "$LRC" -eq 0 ] && grep -qx 'LIVE PAGE rollback-keeps-customised-page' "$LC/tpl/subscription/index.html" && [ -n "$kept" ] && grep -qx 'CUSTOMISED BY HAND' "$kept" && echo 1)" \
+  "a later rollback never restores the kept copy, and the copy stays in place (exit $LRC)"
+
+link_case rollback-no-copy-when-unchanged
+run_linked
+run_linked --rollback
+lexpect "$([ "$LRC" -eq 0 ] && [ -z "$(ls "$LC/tpl/subscription"/index.html.before-rollback-* 2>/dev/null)" ] && echo 1)" \
+  "a page left as the install put it: rollback makes no extra copy ($(ls -A "$LC/tpl/subscription" | tr '\n' ' '))"
+
+link_case rollback-keep-copy-blocked
+run_linked
+printf 'CUSTOMISED BY HAND\n' > "$LC/tpl/subscription/index.html"
+printf 'NOT OURS\n' > "$LC/tpl/subscription/index.html.before-rollback-20300101-000000"
+printf '20300101-000000\n' > "$LC/private/clock"
+run_seamed "DATE_SEQ=$LC/private/clock" --rollback
+lexpect "$([ "$LRC" -ne 0 ] && grep -qx 'CUSTOMISED BY HAND' "$LC/tpl/subscription/index.html" \
+  && grep -qx 'NOT OURS' "$LC/tpl/subscription/index.html.before-rollback-20300101-000000" && echo 1)" \
+  "a customised page that cannot be copied aside is not replaced, and the file already there is untouched (exit $LRC: $(printf '%s' "$LOUT" | grep -E 'copy|refusing|restored' | tail -n1))"
 
 rm -rf "$LINKWORK"
 fi
